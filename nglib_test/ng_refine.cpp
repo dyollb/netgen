@@ -1,16 +1,67 @@
 #include <iostream>
 #include <fstream>
 
-using namespace std;
-
 namespace nglib {
 #include "../nglib/nglib.h"
 }
 
-int main (int argc, char ** argv)
+void generateMesh2D()
 {
+  using namespace std;
   using namespace nglib;
 
+  Ng_Init(false, false, false);
+
+  auto geom = Ng_NewGeometry_2D();
+
+  double points[][3] = {
+    {0,0,0},
+    {1,0,0},
+    {0,1,0},
+    {-1,0,0},
+  };
+  double h = 2;
+
+  for (int i=0; i<4; ++i)
+    Ng_AppendPoint_2D(geom, points[i], h);
+  
+  //Ng_AppendLineSegment_2D(geom, 1, 2, 1, -1, h);
+  //Ng_AppendLineSegment_2D(geom, 2, 3, 1, -1, h);
+  Ng_AppendSplinSegment_2D(geom, 1, 2, 3, 1, -1, h);
+  Ng_AppendLineSegment_2D(geom, 3, 1, 1, 2, h);
+  Ng_AppendLineSegment_2D(geom, 3, 4, 2, -1, h);
+  Ng_AppendLineSegment_2D(geom, 4, 1, 2, -1, h);
+
+  Ng_Mesh * mesh = nullptr;
+  Ng_Meshing_Parameters mp;
+  mp.uselocalh = false;
+  mp.maxh = 10;
+  mp.minh = 0.5;
+  mp.elementsperedge = 2;
+  mp.elementspercurve = 5;
+  mp.uselocalh = true;
+  mp.grading = 0.9;
+
+  auto ok = Ng_GenerateMesh_2D(geom, &mesh, &mp);
+
+  cout << "Points: " << Ng_GetNP(mesh) << endl;
+  cout << "Elements: " << Ng_GetNSE(mesh) << endl;
+
+  Ng_ExportMesh(mesh, NG_VTK, "/Users/lloyd/temp/_spline_geom.vtk");
+
+  Ng_DeleteGeometry_2D(geom);
+  Ng_DeleteMesh(mesh);
+  Ng_Exit();
+}
+
+int main (int argc, char ** argv)
+{
+  generateMesh2D();
+  return 0;
+
+  using namespace std;
+  using namespace nglib;
+  
   Ng_Init();
 
   Ng_Mesh * mesh = Ng_NewMesh ();
@@ -109,6 +160,9 @@ int main (int argc, char ** argv)
   // volume mesh output
   cout << "Points: " << Ng_GetNP(mesh) << endl;
   cout << "Elements: " << Ng_GetNE(mesh) << endl;
+
+  Ng_DeleteMesh(mesh);
+  Ng_Exit();
 
   return 0;
 }
