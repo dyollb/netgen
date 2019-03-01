@@ -16,7 +16,7 @@ void generateMesh2D()
 
   double points[][3] = {
     {0,0,0},
-    {1,0,0},
+    {1,0.5,0},
     {0,1,0},
     {-1,0,0},
   };
@@ -38,9 +38,9 @@ void generateMesh2D()
   mp.maxh = 10;
   mp.minh = 0.5;
   mp.elementsperedge = 2;
-  mp.elementspercurve = 5;
+  mp.elementspercurve = 2;
   mp.uselocalh = true;
-  mp.grading = 0.9;
+  mp.grading = 0.2;
 
   auto ok = Ng_GenerateMesh_2D(geom, &mesh, &mp);
 
