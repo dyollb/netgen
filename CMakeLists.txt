@@ -390,7 +390,7 @@ add_subdirectory(doc)
 add_subdirectory(windows)
 add_subdirectory(nglib)
 add_subdirectory(tests)
-
+add_subdirectory(nglib_test)
 
 #######################################################################
 # Debian packager
