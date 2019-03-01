@@ -23,8 +23,8 @@
 
 // Philippose - 14.02.2009
 // Modifications for creating a DLL in Windows
-#ifdef WIN32
-   #ifdef NGLIB_EXPORTS || nglib_EXPORTS
+#if defined(WIN32)
+   #if defined(NGLIB_EXPORTS) || defined(nglib_EXPORTS)
       #define DLL_HEADER   __declspec(dllexport)
    #else
       #define DLL_HEADER   __declspec(dllimport)
@@ -120,6 +120,9 @@ public:
    int optsteps_3d;                     //!< Number of optimize steps to use for 3-D mesh optimization
    int optsteps_2d;                     //!< Number of optimize steps to use for 2-D mesh optimization
 
+   const char* optimize3d;              //!< Optimization strategy (s=swap shape, c=collapse, d=divide, m=move, M=cheap move)
+   const char* optimize2d;              //!< Optimization strategy (s=swap topological, S=swap shape, c=collapse, m=move)
+
    // Philippose - 13/09/2010
    // Added a couple more parameters into the meshing parameters list 
    // from Netgen into Nglib
@@ -180,6 +183,49 @@ public:
 };
 
 
+class DLL_HEADER Ng_STL_Parameters
+{
+public:
+   // Algorithm may be somewhat like Canny edge detector 
+   // on mesh?
+   double yangle; // 30
+   double contyangle; // 30
+   
+   // I think this is used to split surface into patches/charts,
+   //which  are flattened to use 2d meshing routines.
+   double chartangle; // 15
+   double outerchartangle; // 70
+   
+   int usesearchtree; // 0
+   
+   double atlasminh; // 1e-4
+   
+   // Factors which influence the local mesh size
+   // as a relation to some metric, e.g. curvature, 
+   // line length, etc.
+   // TODO: document each of these properly
+   int resthatlasenable; // 1
+   double resthatlasfac; // 2
+   
+   int resthchartdistenable; // 1
+   double resthchartdistfac; // 0.3
+   
+   int resthedgeangleenable; // 0
+   double resthedgeanglefac; // 1
+   
+   int resthsurfmeshcurvenable; // 0
+   double resthsurfmeshcurvfac; // 0.5
+   
+   int resthlinelengthenable; // 1
+   double resthlinelengthfac; // 0.5
+   
+   int resthcloseedgeenable; // 1
+   double resthcloseedgefac; // 1.0
+   
+   Ng_STL_Parameters();
+   
+   void Transfer_Parameters();
+};
 
 
 // *** Functions Exported by this Library *************
@@ -570,6 +616,14 @@ Ng_GetVolumeElement (Ng_Mesh * mesh, int num, int * pi, int * domain = nullptr);
 
 
 // feeds points and boundary to mesh
+DLL_HEADER Ng_Geometry_2D * Ng_NewGeometry_2D();
+
+DLL_HEADER void Ng_DeleteGeometry_2D(Ng_Geometry_2D * geom);
+
+DLL_HEADER void Ng_AppendPoint_2D(Ng_Geometry_2D* geom, double * x, double h);
+
+DLL_HEADER void Ng_AppendLineSegment_2D(Ng_Geometry_2D* geom, int pi1, int pi2,
+	int leftdomain, int rightdomain, double h);
 
 DLL_HEADER void Ng_AddPoint_2D (Ng_Mesh * mesh, double * x);
 DLL_HEADER void Ng_AddBoundarySeg_2D (Ng_Mesh * mesh, int pi1, int pi2, int domain_in = -1, int domain_out = -1);
@@ -583,8 +637,7 @@ DLL_HEADER int Ng_GetNSeg_2D (Ng_Mesh * mesh);
 DLL_HEADER void Ng_GetPoint_2D (Ng_Mesh * mesh, int num, double * x);
 
 // return 2d elements
-DLL_HEADER Ng_Surface_Element_Type 
-Ng_GetElement_2D (Ng_Mesh * mesh, int num, int * pi, int * matnum = nullptr);
+DLL_HEADER Ng_Surface_Element_Type Ng_GetElement_2D (Ng_Mesh * mesh, int num, int * pi, int * matnum = nullptr);
 
 // return 2d boundary segment
 DLL_HEADER void Ng_GetSegment_2D (Ng_Mesh * mesh, int num, int * pi, int * matnum = nullptr);
@@ -597,7 +650,15 @@ DLL_HEADER Ng_Geometry_2D * Ng_LoadGeometry_2D (const char * filename);
 DLL_HEADER Ng_Result Ng_GenerateMesh_2D (Ng_Geometry_2D * geom,
                                          Ng_Mesh ** mesh,
                                          Ng_Meshing_Parameters * mp);
-  
+ 
+// functions added to make Optimize2d mesh accessible from nglib
+DLL_HEADER void Ng_SetupFacedescriptors(Ng_Mesh * mesh, int maxdomnr);
+
+DLL_HEADER void Ng_AddTriangle_2D(Ng_Mesh * mesh, int pi1, int pi2, int pi3, int matnum = 1);
+
+DLL_HEADER Ng_Result Ng_OptimizeMesh_2D(Ng_Mesh *mesh, Ng_Meshing_Parameters * mp);
+
+
 DLL_HEADER void Ng_HP_Refinement (Ng_Geometry_2D * geom,
                                   Ng_Mesh * mesh,
                                   int levels);
@@ -617,7 +678,9 @@ DLL_HEADER Ng_STL_Geometry * Ng_STL_LoadGeometry (const char * filename, int bin
 
 // generate new STL Geometry
 DLL_HEADER Ng_STL_Geometry * Ng_STL_NewGeometry ();
-  
+
+
+DLL_HEADER void Ng_STL_DeleteGeometry (Ng_STL_Geometry * geom);
 
 // fills STL Geometry
 // positive orientation
@@ -636,13 +699,15 @@ DLL_HEADER Ng_Result Ng_STL_InitSTLGeometry (Ng_STL_Geometry * geom);
 // automatically generates edges:
 DLL_HEADER Ng_Result Ng_STL_MakeEdges (Ng_STL_Geometry * geom,
                             Ng_Mesh* mesh,
-                            Ng_Meshing_Parameters * mp);
+                            Ng_Meshing_Parameters * mp,
+                            Ng_STL_Parameters * stlp = nullptr);
 
 
 // generates mesh, empty mesh must be already created.
 DLL_HEADER Ng_Result Ng_STL_GenerateSurfaceMesh (Ng_STL_Geometry * geom,
                                                  Ng_Mesh * mesh,
-                                                 Ng_Meshing_Parameters * mp);
+                                                 Ng_Meshing_Parameters * mp,
+                                                 Ng_STL_Parameters * stlp = nullptr);
 
 
 #ifdef ACIS

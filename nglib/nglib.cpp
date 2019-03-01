@@ -392,7 +392,7 @@ namespace nglib
          et = NG_TET; break; // for the compiler
       }
       if (domain)
-		  *domain = el.GetIndex();
+        *domain = el.GetIndex();
       return et;
    }
 
@@ -490,7 +490,7 @@ namespace nglib
       seg[1] = pi2;
       seg.domin = domain_in;
       seg.domout = domain_out;
-	  m->AddSegment(seg);
+     m->AddSegment(seg);
    }
 
 
@@ -694,6 +694,16 @@ namespace nglib
    } 
 
 
+   DLL_HEADER void Ng_STL_DeleteGeometry (Ng_STL_Geometry * geom)
+   {
+      if (geom)
+      {
+         STLGeometry* geometry = (STLGeometry*)geom;
+         geometry->Clear();
+         delete geometry;
+         geometry = NULL;
+      }
+   }
 
 
    // after adding triangles (and edges) initialize
@@ -724,7 +734,8 @@ namespace nglib
    // automatically generates edges:
    DLL_HEADER Ng_Result Ng_STL_MakeEdges (Ng_STL_Geometry * geom,
                                           Ng_Mesh* mesh,
-                                          Ng_Meshing_Parameters * mp)
+                                          Ng_Meshing_Parameters * mp,
+                                          Ng_STL_Parameters * stlp)
    {
       STLGeometry* stlgeometry = (STLGeometry*)geom;
       Mesh* me = (Mesh*)mesh;
@@ -734,6 +745,7 @@ namespace nglib
       // object 
       //MeshingParameters mparam;
       mp->Transfer_Parameters();
+      if (stlp) stlp->Transfer_Parameters();
 
       me -> SetGlobalH (mparam.maxh);
       me -> SetLocalH (stlgeometry->GetBoundingBox().PMin() - Vec3d(10, 10, 10),
@@ -769,7 +781,8 @@ namespace nglib
    // generates mesh, empty mesh be already created.
    DLL_HEADER Ng_Result Ng_STL_GenerateSurfaceMesh (Ng_STL_Geometry * geom,
                                                     Ng_Mesh* mesh,
-                                                    Ng_Meshing_Parameters * mp)
+                                                    Ng_Meshing_Parameters * mp,
+                                                    Ng_STL_Parameters * stlp)
    {
       STLGeometry* stlgeometry = (STLGeometry*)geom;
       Mesh* me = (Mesh*)mesh;
@@ -779,6 +792,7 @@ namespace nglib
       // object
       //MeshingParameters mparam;
       mp->Transfer_Parameters();
+      if (stlp) stlp->Transfer_Parameters();
 
 
       /*
@@ -1067,9 +1081,9 @@ namespace nglib
 
       closeedgeenable = 0;
       closeedgefact = 2.0;
-
-	  minedgelenenable = 0;
-	  minedgelen = 1e-4;
+      
+      minedgelenenable = 0;
+      minedgelen = 1e-4;
 
       second_order = 0;
       quad_dominated = 0;
@@ -1081,6 +1095,9 @@ namespace nglib
 
       optsteps_2d = 3;
       optsteps_3d = 3;
+      
+      optimize3d = "cmdmustm";
+      optimize2d = "smsmsmSmSmSm";
 
       invert_tets = 0;
       invert_trigs = 0;
@@ -1095,39 +1112,7 @@ namespace nglib
    // Reset the local meshing parameters to the default values
    DLL_HEADER void Ng_Meshing_Parameters :: Reset_Parameters()
    {
-      uselocalh = 1;
-
-      maxh = 1000;
-      minh = 0;
-
-      fineness = 0.5;
-      grading = 0.3;
-
-      elementsperedge = 2.0;
-      elementspercurve = 2.0;
-
-      closeedgeenable = 0;
-      closeedgefact = 2.0;
-
-  	  minedgelenenable = 0;
-	  minedgelen = 1e-4;
-
-      second_order = 0;
-      quad_dominated = 0;
-
-      meshsize_filename = 0;
-
-      optsurfmeshenable = 1;
-      optvolmeshenable = 1;
-
-      optsteps_2d = 3;
-      optsteps_3d = 3;
-
-      invert_tets = 0;
-      invert_trigs = 0;
-
-      check_overlap = 1;
-      check_overlapping_boundary = 1;
+      (*this) = Ng_Meshing_Parameters();
    }
 
 
@@ -1154,12 +1139,81 @@ namespace nglib
         mparam.meshsizefilename = "";
       mparam.optsteps2d = optsteps_2d;
       mparam.optsteps3d = optsteps_3d;
+      
+      if (strlen(optimize2d) > 0) mparam.optimize2d = optimize2d;
+      if (strlen(optimize3d) > 0) mparam.optimize3d = optimize3d;
 
       mparam.inverttets = invert_tets;
       mparam.inverttrigs = invert_trigs;
 
       mparam.checkoverlap = check_overlap;
       mparam.checkoverlappingboundary = check_overlapping_boundary;
+   }
+
+
+
+   DLL_HEADER Ng_STL_Parameters :: Ng_STL_Parameters()
+   {
+      yangle = 30;
+      contyangle = 20;
+      
+      chartangle = 10; // original = 15
+      outerchartangle = 80; // original = 70;
+      
+      usesearchtree = 0;
+      
+      atlasminh = 1.0; // original = 1E-4
+      
+      resthatlasenable = 1;
+      resthatlasfac = 2;
+      
+      resthchartdistenable = 1;
+      resthchartdistfac = 0.3; // original = 1.2
+      
+      resthedgeangleenable = 0;
+      resthedgeanglefac = 1;
+      
+      resthsurfmeshcurvenable = 1;
+      resthsurfmeshcurvfac = 1;
+      
+      resthlinelengthenable = 1;
+      resthlinelengthfac = 0.2; // original = 0.5
+      
+      resthcloseedgefac = 1;
+      resthcloseedgeenable = 1;
+   }
+
+
+
+   DLL_HEADER void Ng_STL_Parameters :: Transfer_Parameters()
+   {
+      stlparam.yangle = yangle;
+      stlparam.contyangle = contyangle;
+
+      stlparam.chartangle = chartangle;
+      stlparam.outerchartangle = outerchartangle;
+
+      stlparam.usesearchtree = usesearchtree;
+
+      stlparam.atlasminh = atlasminh;
+
+      stlparam.resthatlasenable = resthatlasenable;
+      stlparam.resthatlasfac = resthatlasfac;
+
+      stlparam.resthchartdistenable = resthchartdistenable;
+      stlparam.resthchartdistfac = resthchartdistfac;
+
+      stlparam.resthedgeangleenable = resthedgeangleenable;
+      stlparam.resthedgeanglefac = resthedgeanglefac;
+
+      stlparam.resthsurfmeshcurvenable = resthsurfmeshcurvenable;
+      stlparam.resthsurfmeshcurvfac = resthsurfmeshcurvfac;
+
+      stlparam.resthlinelengthenable = resthlinelengthenable;
+      stlparam.resthlinelengthfac = resthlinelengthfac;
+
+      stlparam.resthcloseedgeenable = resthcloseedgeenable;
+      stlparam.resthcloseedgefac = resthcloseedgefac;
    }
    // ------------------ End - Meshing Parameters related functions --------------------
 
@@ -1177,7 +1231,7 @@ namespace nglib
 
 
    DLL_HEADER void Ng_2D_Generate_SecondOrder(Ng_Geometry_2D * geom,
-					  Ng_Mesh * mesh)
+                 Ng_Mesh * mesh)
    {
       ( (SplineGeometry2d*)geom ) -> GetRefinement().MakeSecondOrder( * (Mesh*) mesh );
    }
@@ -1186,7 +1240,7 @@ namespace nglib
 
 
    DLL_HEADER void Ng_STL_Generate_SecondOrder(Ng_STL_Geometry * geom,
-					   Ng_Mesh * mesh)
+                  Ng_Mesh * mesh)
    {
       ((STLGeometry*)geom)->GetRefinement().MakeSecondOrder(*(Mesh*) mesh);
    }
@@ -1195,7 +1249,7 @@ namespace nglib
 
 
    DLL_HEADER void Ng_CSG_Generate_SecondOrder (Ng_CSG_Geometry * geom,
-					   Ng_Mesh * mesh)
+                  Ng_Mesh * mesh)
    {
       ((CSGeometry*)geom)->GetRefinement().MakeSecondOrder(*(Mesh*) mesh);
    }
@@ -1216,14 +1270,18 @@ namespace nglib
 
 
    // ------------------ Begin - Uniform Mesh Refinement functions ---------------------
-   DLL_HEADER void Ng_Uniform_Refinement (Ng_Mesh * mesh)
+   DLL_HEADER void Ng_Uniform_Refinement (Ng_Mesh * ng_mesh)
    {
-      Refinement ref;
-      ref.Refine ( * (Mesh*) mesh );
+      Mesh * mesh = (Mesh*) ng_mesh;
+
+      if (auto geom = mesh->GetGeometry())
+         geom->GetRefinement().Refine (*mesh);
+      else
+         Refinement().Refine (*mesh);
    }
 
 
-   void Ng_SetRefinementFlag (Ng_Mesh * ng_mesh, int ei, int flag)
+   DLL_HEADER void Ng_SetRefinementFlag (Ng_Mesh * ng_mesh, int ei, int flag)
    {
       Mesh * mesh = (Mesh*) ng_mesh;
       
@@ -1240,7 +1298,7 @@ namespace nglib
    }
 
 
-   void Ng_SetSurfaceRefinementFlag (Ng_Mesh * ng_mesh, int ei, int flag)
+   DLL_HEADER void Ng_SetSurfaceRefinementFlag (Ng_Mesh * ng_mesh, int ei, int flag)
    {
       Mesh * mesh = (Mesh*) ng_mesh;
 
@@ -1252,7 +1310,7 @@ namespace nglib
    }
 
 
-   void Ng_Refine (Ng_Mesh * ng_mesh)
+   DLL_HEADER void Ng_Refine (Ng_Mesh * ng_mesh)
    {
       Mesh * mesh = (Mesh*) ng_mesh;
       BisectionOptions biopt;
@@ -1265,7 +1323,7 @@ namespace nglib
       else
          Refinement().Bisect (*mesh, biopt);
 
-      // not sure if this is needed?
+      // \todo not sure if this is needed?
       //mesh -> UpdateTopology();
       //mesh -> GetCurvedElements().SetIsHighOrder (false);
    }
