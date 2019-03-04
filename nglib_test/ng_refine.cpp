@@ -54,9 +54,79 @@ void generateMesh2D()
   Ng_Exit();
 }
 
+int addFaceDescriptor()
+{
+  using namespace nglib;
+  
+  int np = 5;
+  double points[5][3] = {
+    {0,0,0},
+    {1,0,0},
+    {1,1,0},
+    {1,1,-0.6},
+    {1,1,0.6}
+  };
+  int ne = 1;
+  int elems[1][4] = {
+    {1,2,3,4},
+  };
+
+  Ng_Init();
+
+  Ng_Mesh * mesh = Ng_NewMesh ();
+
+  for (int i = 0; i < np; i++)
+  {
+    double *point = points[i];
+    Ng_AddPoint (mesh, point);
+  }
+
+  for (int i = 0; i < ne; i++)
+  {
+    int *el = elems[i];
+    Ng_AddVolumeElement (mesh, NG_TET, el, 3);
+  }
+
+  Ng_ClearFaceDescriptors(mesh);
+
+  int face1 = Ng_AddFaceDescriptor(mesh, 1, 1, 0, 3);
+  int face2 = Ng_AddFaceDescriptor(mesh, 1, 1, 0, 4);
+  int facenrs[] = {face1, face1, face2, face1};
+
+  short const TET_FACES[4][4] = { {0,1,3,-1}, {0,2,1,-1}, {0,3,2,-1}, {1,2,3,-1} };
+  auto tet = elems[0];
+  for (int i=0; i<4; i++)
+  {
+    auto t = TET_FACES[i];
+    int tri[] = { tet[t[0]], tet[t[1]], tet[t[2]] };
+    Ng_AddSurfaceElement(mesh, NG_TRIG, tri, facenrs[i]);
+  }
+
+  Ng_Uniform_Refinement(mesh);
+
+  int nse = Ng_GetNSE(mesh);
+  for(int i = 1; i <= nse; i++)
+  {
+    int tri[3];
+    int facenr;
+    Ng_GetSurfaceElement(mesh, i, tri, &facenr);
+
+    int surfnr, bc, din, dout;
+    Ng_GetFaceDescriptor(mesh, facenr, surfnr, din, dout, bc);
+    std::cerr << "facenr " << facenr << " " << bc << " " << din << " " << dout << "\n";
+  }
+  
+
+  Ng_ExportMesh(mesh, NG_VTK, "/Users/lloyd/temp/face_markers.vtk");
+  Ng_DeleteMesh(mesh);
+  Ng_Exit();
+
+}
+
 int main (int argc, char ** argv)
 {
-  generateMesh2D();
+  addFaceDescriptor();
+  //generateMesh2D();
   return 0;
 
   using namespace std;
