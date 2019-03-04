@@ -54,7 +54,7 @@ void generateMesh2D()
   Ng_Exit();
 }
 
-int addFaceDescriptor()
+void addFaceDescriptor()
 {
   using namespace nglib;
   
@@ -120,7 +120,6 @@ int addFaceDescriptor()
   Ng_ExportMesh(mesh, NG_VTK, "/Users/lloyd/temp/face_markers.vtk");
   Ng_DeleteMesh(mesh);
   Ng_Exit();
-
 }
 
 int main (int argc, char ** argv)
