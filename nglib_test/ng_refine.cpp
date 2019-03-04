@@ -2,7 +2,7 @@
 #include <fstream>
 
 namespace nglib {
-#include "../nglib/nglib.h"
+#include <nglib.h>
 }
 
 void generateMesh2D()
