@@ -72,10 +72,96 @@ namespace netgen
     Clean();
   }
 
+  PointGeomInfo CSGeometry :: ProjectPoint(int surfind, Point<3> & p) const
+  {
+    Point<3> hp = p;
+    GetSurface(surfind)->Project (hp);
+    p = hp;
+    return PointGeomInfo();
+  }
+
+  bool CSGeometry :: ProjectPointGI(int surfind, Point<3> & p, PointGeomInfo & gi) const
+  {
+    GetSurface(surfind)->Project (p);
+    return true;
+  }
+
+  void CSGeometry :: ProjectPointEdge(int surfind, INDEX surfind2,
+                                      Point<3> & p, EdgePointGeomInfo* /*unused*/) const
+  {
+    Point<3> hp = p;
+    ProjectToEdge (GetSurface(surfind),
+                   GetSurface(surfind2), hp);
+    p = hp;
+  }
+
+
+  Vec<3> CSGeometry :: GetNormal(int surfind, const Point<3> & p,
+                                 const PointGeomInfo* /*unused*/) const
+  {
+    Vec<3> hn;
+    GetSurface(surfind)->CalcGradient(p, hn);
+    hn.Normalize();
+    return hn;
+  }
+
+  void CSGeometry ::
+  PointBetween(const Point<3> & p1, const Point<3> & p2, double secpoint,
+               int surfi,
+               const PointGeomInfo & gi1,
+               const PointGeomInfo & gi2,
+               Point<3> & newp, PointGeomInfo & newgi) const
+  {
+    Point<3> hnewp;
+    hnewp = p1+secpoint*(p2-p1);
+    if (surfi != -1)
+      {
+        GetSurface (surfi) -> Project (hnewp);
+        newgi.trignum = 1;
+      }
+
+    newp = hnewp;
+  }
+
+  void CSGeometry :: PointBetweenEdge(const Point<3> & p1, const Point<3> & p2, double secpoint,
+               int surfi1, int surfi2,
+               const EdgePointGeomInfo & ap1,
+               const EdgePointGeomInfo & ap2,
+               Point<3> & newp, EdgePointGeomInfo & newgi) const
+  {
+    Point<3> hnewp = p1+secpoint*(p2-p1);
+    //(*testout) << "hnewp " << hnewp << " s1 " << surfi1 << " s2 " << surfi2 << endl;
+    if (surfi1 != -1 && surfi2 != -1 && surfi1 != surfi2)
+      {
+        netgen::ProjectToEdge (GetSurface(surfi1),
+                               GetSurface(surfi2),
+                               hnewp);
+        // (*testout) << "Pointbetween, newp = " << hnewp << endl
+        // << ", err = " << sqrt (sqr (hnewp(0))+ sqr(hnewp(1)) + sqr (hnewp(2))) - 1 << endl;
+        newgi.edgenr = 1;
+        //(*testout) << "hnewp (a1) " << hnewp << endl;
+      }
+    else if (surfi1 != -1)
+      {
+        GetSurface (surfi1) -> Project (hnewp);
+        //(*testout) << "hnewp (a2) " << hnewp << endl;
+      }
+
+    newp = hnewp;
+  };
+
+  Vec<3> CSGeometry :: GetTangent(const Point<3> & p, int surfi1, int surfi2,
+                                  const EdgePointGeomInfo & ap1) const
+  {
+    Vec<3> n1 = GetSurface (surfi1)->GetNormalVector (p);
+    Vec<3> n2 = GetSurface (surfi2)->GetNormalVector (p);
+    Vec<3> tau = Cross (n1, n2).Normalize();
+    return tau;
+  }
 
   void CSGeometry :: Clean ()
   {
-    Array< Solid* > to_delete;
+    NgArray< Solid* > to_delete;
     
     for (int i = 0; i < solids.Size(); i++)
       if(!to_delete.Contains(solids[i]->S1()))
@@ -137,15 +223,6 @@ namespace netgen
     return CSGGenerateMesh (*this, mesh, mparam);
   }
   
-  const Refinement & CSGeometry :: GetRefinement () const
-  {
-    // cout << "get CSGeometry - Refinement" << endl;
-    // should become class variables
-    RefinementSurfaces * ref = new RefinementSurfaces(*this);
-    ref -> Set2dOptimizer(new MeshOptimize2dSurfaces(*this));
-    return *ref;
-  }
-
   class WritePrimitivesIt : public SolidIterator
   {
     ostream & ost;
@@ -162,7 +239,7 @@ namespace netgen
     if (prim)
       {
 	const char * classname;
-	Array<double> coeffs;
+	NgArray<double> coeffs;
 
 	prim -> GetPrimitiveData (classname, coeffs);
 
@@ -237,7 +314,7 @@ namespace netgen
   
     char key[100], name[100], classname[100], sname[100];
     int ncoeff, i, j;
-    Array<double> coeff;
+    NgArray<double> coeff;
 
     while (ist.good())
       {
@@ -343,7 +420,7 @@ namespace netgen
 
 
     
-    Array<double> coeffs;
+    NgArray<double> coeffs;
     const char * classname;
 
     out << "csgsurfaces " << GetNSurf() << "\n";
@@ -408,7 +485,7 @@ namespace netgen
 
   void CSGeometry :: LoadSurfaces (istream & in)
   {
-    Array<double> coeffs;
+    NgArray<double> coeffs;
     string classname;
     int nsurfaces,size;
 
@@ -722,7 +799,7 @@ namespace netgen
   void CSGeometry :: SetFlags (const char * solidname, const Flags & flags)
   {
     Solid * solid = solids[solidname];
-    Array<int> surfind;
+    NgArray<int> surfind;
 
     int i;
     double maxh = flags.GetNumFlag ("maxh", -1);
@@ -752,7 +829,7 @@ namespace netgen
 
     if (flags.StringListFlagDefined ("bcname"))
       {
-	const Array<char*> & bcname = flags.GetStringListFlag("bcname");
+	auto& bcname = flags.GetStringListFlag("bcname");
 
 	Polyhedra * polyh;
 	if(solid->S1())
@@ -762,7 +839,7 @@ namespace netgen
 
 	if(polyh)
 	  {
-	    Array < Array<int> * > polysurfs;
+	    NgArray < NgArray<int> * > polysurfs;
 	    polyh->GetPolySurfs(polysurfs);
 	    if(bcname.Size() != polysurfs.Size())
 	      cerr << "WARNING: solid \"" << solidname << "\" has " << polysurfs.Size()
@@ -806,7 +883,7 @@ namespace netgen
    
     if (flags.NumListFlagDefined ("bc"))
       {
-	const Array<double> & bcnum = flags.GetNumListFlag("bc");
+	const auto& bcnum = flags.GetNumListFlag("bc");
 
 	Polyhedra * polyh;
 	if(solid->S1())
@@ -816,7 +893,7 @@ namespace netgen
 
 	if(polyh)
 	  {
-	    Array < Array<int> * > polysurfs;
+	    NgArray < NgArray<int> * > polysurfs;
 	    polyh->GetPolySurfs(polysurfs);
 	    if(bcnum.Size() != polysurfs.Size())
 	      cerr << "WARNING: solid \"" << solidname << "\" has " << polysurfs.Size()
@@ -880,7 +957,7 @@ namespace netgen
   void CSGeometry ::
   GetSurfaceIndices (const Solid * sol, 
 		     const BoxSphere<3> & box, 
-		     Array<int> & locsurf) const
+		     NgArray<int> & locsurf) const
   {
     ReducePrimitiveIterator rpi(box);
     UnReducePrimitiveIterator urpi;
@@ -909,7 +986,7 @@ namespace netgen
   void CSGeometry ::
   GetIndependentSurfaceIndices (const Solid * sol, 
 				const BoxSphere<3> & box, 
-				Array<int> & locsurf) const
+				NgArray<int> & locsurf) const
   {
     ReducePrimitiveIterator rpi(box);
     UnReducePrimitiveIterator urpi;
@@ -968,7 +1045,7 @@ namespace netgen
   void CSGeometry ::
   GetIndependentSurfaceIndices (const Solid * sol, 
 				const Point<3> & p, Vec<3> & v,
-				Array<int> & locsurf) const
+				NgArray<int> & locsurf) const
   {
     cout << "very dangerous" << endl;
     Point<3> p2 = p + 1e-2 * v;
@@ -980,7 +1057,7 @@ namespace netgen
   */
 
   void CSGeometry ::
-  GetIndependentSurfaceIndices (Array<int> & locsurf) const
+  GetIndependentSurfaceIndices (NgArray<int> & locsurf) const
   {
     for (int i = 0; i < locsurf.Size(); i++)
       locsurf[i] = isidenticto[locsurf[i]];
@@ -1022,7 +1099,7 @@ namespace netgen
       delete triapprox[i];
     triapprox.SetSize (ntlo);
 
-    Array<int> surfind;
+    NgArray<int> surfind;
     IndexSet iset(GetNSurf());
 
     for (int i = 0; i < ntlo; i++)
@@ -1148,7 +1225,7 @@ namespace netgen
     //return;
 
     int pinds[6];
-    ArrayMem<int,500> surfused(GetNSurf());
+    NgArrayMem<int,500> surfused(GetNSurf());
   
     ReducePrimitiveIterator rpi(box);
     UnReducePrimitiveIterator urpi;
@@ -1159,7 +1236,7 @@ namespace netgen
 
     //    IndexSet iset(GetNSurf());
     locsol -> GetSurfaceIndices (iset);
-    const Array<int> & lsurfi = iset.GetArray();
+    const NgArray<int> & lsurfi = iset.GetArray();
 
     locsol -> IterateSolid (urpi);
 

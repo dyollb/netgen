@@ -23,6 +23,14 @@ namespace netgen
 
     INDEX_2_HASHTABLE<PointIndex> between(mesh.GetNP() + 5);
 
+    for (SegmentIndex si = 0; si < mesh.GetNSeg(); si++)
+      {
+        auto & seg = mesh[si];
+        if (seg.GetType() == SEGMENT3)
+          between.Set(INDEX_2::Sort(seg[0],seg[1]), seg[2]);
+      }
+    
+    
     for (SurfaceElementIndex sei = 0; sei < mesh.GetNSE(); sei++)
       {
 	const Element2d & el = mesh[sei];
@@ -92,11 +100,11 @@ namespace netgen
 	  {
 	    Point<3> pb;
 	    EdgePointGeomInfo ngi;
-            PointBetween (mesh.Point (el[0]),
-                          mesh.Point (el[1]), 0.5,
-			  el.surfnr1, el.surfnr2,
-			  el.epgeominfo[0], el.epgeominfo[1],
-			  pb, ngi);
+            geo.PointBetweenEdge(mesh.Point (el[0]),
+                                 mesh.Point (el[1]), 0.5,
+                                 el.surfnr1, el.surfnr2,
+                                 el.epgeominfo[0], el.epgeominfo[1],
+                                 pb, ngi);
 	  
 	    el[2] = mesh.AddPoint (pb, mesh.Point(el[0]).GetLayer(), 
 				   EDGEPOINT);
@@ -107,10 +115,9 @@ namespace netgen
     // refine surface elements
     for (SurfaceElementIndex sei = 0; sei < mesh.GetNSE(); sei++)
       {
-	int j;
-	const Element2d & el = mesh.SurfaceElement(sei);
+	const Element2d & el = mesh[sei];
 
-	int onp(0);
+	int onp = 0;
       
 	Element2d newel(TRIG);
 	newel.SetIndex (el.GetIndex());
@@ -160,11 +167,11 @@ namespace netgen
 	    PrintSysError ("Unhandled element in secondorder:", int(el.GetType()));
 	  }
 
-	for (j = 0; j < onp; j++)
+	for (int j = 0; j < onp; j++)
 	  newel[j] = el[j];
       
 	int nnp = newel.GetNP();
-	for (j = 0; j < nnp-onp; j++)
+	for (int j = 0; j < nnp-onp; j++)
 	  {
 	    int pi1 = newel[betw[j][0]];
 	    int pi2 = newel[betw[j][1]];
@@ -177,12 +184,12 @@ namespace netgen
 	      {
 		Point<3> pb;
 		PointGeomInfo newgi;
-		PointBetween (mesh.Point (pi1),
-			      mesh.Point (pi2), 0.5, 
-			      mesh.GetFaceDescriptor(el.GetIndex ()).SurfNr(),
-			      el.GeomInfoPi (betw[j][0]+1),
-			      el.GeomInfoPi (betw[j][1]+1),
-			      pb, newgi);
+		geo.PointBetween(mesh.Point (pi1),
+                                 mesh.Point (pi2), 0.5, 
+                                 mesh.GetFaceDescriptor(el.GetIndex ()).SurfNr(),
+                                 el.GeomInfoPi (betw[j][0]+1),
+                                 el.GeomInfoPi (betw[j][1]+1),
+                                 pb, newgi);
 
 		newel[onp+j] = mesh.AddPoint (pb, mesh.Point(pi1).GetLayer(), 
 					      SURFACEPOINT);
@@ -190,7 +197,7 @@ namespace netgen
 	      }
 	  }
       
-	mesh.SurfaceElement(sei) = newel;
+	mesh[sei] = newel;
       }
 
  
@@ -343,7 +350,7 @@ namespace netgen
     // update identification tables
     for (int i = 1; i <= mesh.GetIdentifications().GetMaxNr(); i++)
       {
-	Array<int,PointIndex::BASE> identmap;
+	NgArray<int,PointIndex::BASE> identmap;
 	mesh.GetIdentifications().GetMap (i, identmap);
 
 	for (INDEX_2_HASHTABLE<PointIndex>::Iterator it = between.Begin();
@@ -417,7 +424,7 @@ namespace netgen
     int np = mesh.GetNP();
     int ne = mesh.GetNE();
     // int i, j;
-    Array<INDEX_2> parents(np);
+    NgArray<INDEX_2> parents(np);
   
     for (int i = 1; i <= np; i++)
       parents.Elem(i) = INDEX_2(0,0);
@@ -451,7 +458,7 @@ namespace netgen
 
   void Refinement ::
   ValidateRefinedMesh (Mesh & mesh, 
-		       Array<INDEX_2> & parents)
+		       NgArray<INDEX_2> & parents)
   {
     // int i, j, k;
   
@@ -473,7 +480,7 @@ namespace netgen
     double facok = 0;
     double factry;
 
-    BitArray illegalels(ne);
+    NgBitArray illegalels(ne);
     illegalels.Clear();
 
       
@@ -482,8 +489,8 @@ namespace netgen
 	cout << "WARNING: " << wrongels << " illegal element(s) found" << endl;
 
 	int np = mesh.GetNP();
-	Array<Point<3> > should(np);
-	Array<Point<3> > can(np);
+	NgArray<Point<3> > should(np);
+	NgArray<Point<3> > can(np);
 
 	for (int i = 1; i <= np; i++)
 	  {
@@ -497,7 +504,7 @@ namespace netgen
 				    can.Elem(parents.Get(i).I2()));
 	  }
 
-	BitArray boundp(np);
+	NgBitArray boundp(np);
 	boundp.Clear();
 	for (int i = 1; i <= mesh.GetNSE(); i++)
 	  {

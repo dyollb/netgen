@@ -12,11 +12,11 @@ namespace netgen
   class MarkedTri;
   class MarkedQuad;
   
-  typedef Array<MarkedTet> T_MTETS;
-  typedef Array<MarkedPrism> T_MPRISMS;
-  typedef Array<MarkedIdentification> T_MIDS;
-  typedef Array<MarkedTri> T_MTRIS;
-  typedef Array<MarkedQuad> T_MQUADS;
+  typedef NgArray<MarkedTet> T_MTETS;
+  typedef NgArray<MarkedPrism> T_MPRISMS;
+  typedef NgArray<MarkedIdentification> T_MIDS;
+  typedef NgArray<MarkedTri> T_MTRIS;
+  typedef NgArray<MarkedQuad> T_MQUADS;
 
   
   
@@ -303,7 +303,7 @@ namespace netgen
 
 
   int BTSortEdges (const Mesh & mesh,
-		   const Array< Array<int,PointIndex::BASE>* > & idmaps,
+		   const NgArray< NgArray<int,PointIndex::BASE>* > & idmaps,
 		   INDEX_2_CLOSED_HASHTABLE<int> & edgenumber)
   {
     PrintMessage(4,"sorting ... ");
@@ -313,8 +313,8 @@ namespace netgen
       {
 	// new, fast version
       
-	Array<INDEX_2> edges;
-	Array<int> eclasses;
+	NgArray<INDEX_2> edges;
+	NgArray<int> eclasses;
       
 	int i, j, k;
 	int cntedges = 0;
@@ -585,7 +585,7 @@ namespace netgen
 // 	  }
 	
 	// compute classlength:
-	Array<double> edgelength(cntedges);
+	NgArray<double> edgelength(cntedges);
 
 	/*
 	for (i = 1; i <= cntedges; i++)
@@ -676,7 +676,7 @@ namespace netgen
 
 
 	// sort edges:
-	Array<int> sorted(cntedges);
+	NgArray<int> sorted(cntedges);
       
 	QuickSort (edgelength, sorted);
       
@@ -974,7 +974,7 @@ namespace netgen
 
   bool BTDefineMarkedId(const Element2d & el, 
 			INDEX_2_CLOSED_HASHTABLE<int> & edgenumber, 
-			const Array<int,PointIndex::BASE> & idmap,
+			const NgArray<int,PointIndex::BASE> & idmap,
 			MarkedIdentification & mi)
   {
 
@@ -1392,7 +1392,7 @@ namespace netgen
 
 
   void BTBisectIdentification (const MarkedIdentification & oldid,
-			       Array<PointIndex> & newp,
+			       NgArray<PointIndex> & newp,
 			       MarkedIdentification & newid1,
 			       MarkedIdentification & newid2)
   {
@@ -1626,10 +1626,10 @@ namespace netgen
   {
     int i,j,k;
 
-    Array< Array<int,PointIndex::BASE>* > idmaps;
+    NgArray< NgArray<int,PointIndex::BASE>* > idmaps;
     for(i=1; i<=mesh.GetIdentifications().GetMaxNr(); i++)
       {
-	idmaps.Append(new Array<int,PointIndex::BASE>);
+	idmaps.Append(new NgArray<int,PointIndex::BASE>);
 	mesh.GetIdentifications().GetMap(i,*idmaps.Last());
       }
 
@@ -1847,7 +1847,7 @@ namespace netgen
 
 
   void ConnectToNodeRec (int node, int tonode, 
-			 const TABLE<int> & conto, Array<int> & connecttonode)
+			 const TABLE<int> & conto, NgArray<int> & connecttonode)
   {
     //  (*testout) << "connect " << node << " to " << tonode << endl;
     for (int i = 1; i <= conto.EntrySize(node); i++)
@@ -1955,9 +1955,11 @@ namespace netgen
 
   void BisectTetsCopyMesh (Mesh & mesh, const NetgenGeometry *,
 			   BisectionOptions & opt,
-			   const Array< Array<int,PointIndex::BASE>* > & idmaps,
+			   const NgArray< NgArray<int,PointIndex::BASE>* > & idmaps,
 			   const string & refinfofile)
   {
+    if (mesh.GetDimension() < 2)
+      throw Exception ("Mesh bisection is available in 2D and 3D");
     // mtets.SetName ("bisection, tets");
     // mprisms.SetName ("bisection, prisms");
     // mtris.SetName ("bisection, trigs");
@@ -2150,7 +2152,7 @@ namespace netgen
 	  }
         if(mesh.GetDimension() == 2)
           {
-            for (SegmentIndex j=1; j<=mesh.GetNSeg(); j++)
+            for (SegmentIndex j=0; j<mesh.GetNSeg(); j++)
               {
                 auto seg = mesh[j];
                 for (auto map : idmaps)
@@ -2201,24 +2203,24 @@ namespace netgen
 
   /*
   void UpdateEdgeMarks2(Mesh & mesh,
-			const Array< Array<int,PointIndex::BASE>* > & idmaps)
+			const NgArray< NgArray<int,PointIndex::BASE>* > & idmaps)
   {
-    Array< Array<MarkedTet>*,PointIndex::BASE > mtets_old(mesh.GetNP());
-    Array< Array<MarkedPrism>*,PointIndex::BASE > mprisms_old(mesh.GetNP());
-    Array< Array<MarkedIdentification>*,PointIndex::BASE > mids_old(mesh.GetNP());
-    Array< Array<MarkedTri>*,PointIndex::BASE > mtris_old(mesh.GetNP());
-    Array< Array<MarkedQuad>*,PointIndex::BASE > mquads_old(mesh.GetNP());
+    NgArray< NgArray<MarkedTet>*,PointIndex::BASE > mtets_old(mesh.GetNP());
+    NgArray< NgArray<MarkedPrism>*,PointIndex::BASE > mprisms_old(mesh.GetNP());
+    NgArray< NgArray<MarkedIdentification>*,PointIndex::BASE > mids_old(mesh.GetNP());
+    NgArray< NgArray<MarkedTri>*,PointIndex::BASE > mtris_old(mesh.GetNP());
+    NgArray< NgArray<MarkedQuad>*,PointIndex::BASE > mquads_old(mesh.GetNP());
 
     for(int i=PointIndex::BASE; i<mesh.GetNP()+PointIndex::BASE; i++)
-      mtets_old[i] = new Array<MarkedTet>;
+      mtets_old[i] = new NgArray<MarkedTet>;
     for(int i=PointIndex::BASE; i<mesh.GetNP()+PointIndex::BASE; i++)
-      mprisms_old[i] = new Array<MarkedPrism>;
+      mprisms_old[i] = new NgArray<MarkedPrism>;
     for(int i=PointIndex::BASE; i<mesh.GetNP()+PointIndex::BASE; i++)
-      mids_old[i] = new Array<MarkedIdentification>;
+      mids_old[i] = new NgArray<MarkedIdentification>;
     for(int i=PointIndex::BASE; i<mesh.GetNP()+PointIndex::BASE; i++)
-      mtris_old[i] = new Array<MarkedTri>;
+      mtris_old[i] = new NgArray<MarkedTri>;
     for(int i=PointIndex::BASE; i<mesh.GetNP()+PointIndex::BASE; i++)
-      mquads_old[i] = new Array<MarkedQuad>;
+      mquads_old[i] = new NgArray<MarkedQuad>;
 
     for(int i=0; i<mtets.Size(); i++)
       mtets_old[mtets[i].pnums[0]]->Append(mtets[i]);
@@ -2454,11 +2456,11 @@ namespace netgen
 
   
   void UpdateEdgeMarks (Mesh & mesh,
-			const Array< Array<int,PointIndex::BASE>* > & idmaps)
-  //const Array < Array<Element>* > & elements_before,
-  //const Array < Array<int>* > & markedelts_num,
-  //		const Array < Array<Element2d>* > & surfelements_before,
-  //		const Array < Array<int>* > & markedsurfelts_num)
+			const NgArray< NgArray<int,PointIndex::BASE>* > & idmaps)
+  //const NgArray < NgArray<Element>* > & elements_before,
+  //const NgArray < NgArray<int>* > & markedelts_num,
+  //		const NgArray < NgArray<Element2d>* > & surfelements_before,
+  //		const NgArray < NgArray<int>* > & markedsurfelts_num)
   {
     /*
     T_MTETS mtets_old; mtets_old.Copy(mtets);
@@ -2687,7 +2689,7 @@ namespace netgen
 
   void Refinement :: Bisect (Mesh & mesh, 
 			     BisectionOptions & opt,
-			     Array<double> * quality_loss) const
+			     NgArray<double> * quality_loss) const
   {
     PrintMessage(1,"Mesh bisection");
     PushStatus("Mesh bisection");
@@ -2717,12 +2719,12 @@ namespace netgen
     LocalizeEdgePoints(mesh);
     delete loct;
 
-    Array< Array<int,PointIndex::BASE>* > idmaps;
+    NgArray< NgArray<int,PointIndex::BASE>* > idmaps;
     for(int i=1; i<=mesh.GetIdentifications().GetMaxNr(); i++)
       {
 	if(mesh.GetIdentifications().GetType(i) == Identifications::PERIODIC)
 	  {
-	    idmaps.Append(new Array<int,PointIndex::BASE>);
+	    idmaps.Append(new NgArray<int,PointIndex::BASE>);
 	    mesh.GetIdentifications().GetMap(i,*idmaps.Last(),true);
 	  }
       }
@@ -2755,14 +2757,15 @@ namespace netgen
 	inf.close();
       }
 	
-
-
-    if (mesh.mglevels == 1 || idmaps.Size() > 0)
-      BisectTetsCopyMesh(mesh, NULL, opt, idmaps, refelementinfofileread);
-
-
     mesh.ComputeNVertices();
-  
+
+    // if (mesh.mglevels == 1 || idmaps.Size() > 0)
+    if (mesh.level_nv.Size() == 0)  // || idmaps.Size()  ????
+      {
+        BisectTetsCopyMesh(mesh, NULL, opt, idmaps, refelementinfofileread);
+        mesh.level_nv.Append (mesh.GetNV());
+      }
+
     int np = mesh.GetNV();
     mesh.SetNP(np);
 
@@ -2773,7 +2776,7 @@ namespace netgen
     // int initnp = np;
     //  int maxsteps = 3;
 
-    mesh.mglevels++;
+    // mesh.mglevels++;
 
     /*
       if (opt.refinementfilename || opt.usemarkedelements)
@@ -2805,7 +2808,7 @@ namespace netgen
 
 #ifndef SABINE //Nachbarelemente mit ordx,ordy,ordz 
         
-	  Array<int,PointIndex::BASE> v_order (mesh.GetNP());
+	  NgArray<int,PointIndex::BASE> v_order (mesh.GetNP());
 	  v_order = 0;
 
 	  for (ElementIndex ei = 0; ei < ne; ei++)
@@ -3158,7 +3161,7 @@ namespace netgen
 	if (opt.refine_hp)
 	  {
 	    PrintMessage(3,"refine hp");
-	    BitArray singv(np);
+	    NgBitArray singv(np);
 	    singv.Clear();
 
 	    if (mesh.GetDimension() == 3)
@@ -3181,7 +3184,7 @@ namespace netgen
 	    else
 	      {
 		// vertices with 2 different bnds
-		Array<int> bndind(np);
+		NgArray<int> bndind(np);
 		bndind = 0;
 		for (int i = 1; i <= mesh.GetNSeg(); i++)
 		  {
@@ -3347,11 +3350,11 @@ namespace netgen
 	      if (mids.Elem(i).marked)
 		{
 		  MarkedIdentification oldid,newid1,newid2;
-		  Array<PointIndex> newp;
+		  NgArray<PointIndex> newp;
 
 		  oldid = mids.Get(i);
 		  
-		  Array<INDEX_2> edges;
+		  NgArray<INDEX_2> edges;
 		  edges.Append(INDEX_2(oldid.pnums[oldid.markededge],
 				       oldid.pnums[(oldid.markededge+1)%oldid.np]));
 		  edges.Append(INDEX_2(oldid.pnums[oldid.markededge + oldid.np],
@@ -3427,11 +3430,11 @@ namespace netgen
 		  PointGeomInfo npgi;
 		
                   if (mesh[newp].Type() != EDGEPOINT)
-                    PointBetween (mesh.Point (oldpi1), mesh.Point (oldpi2),
-                                  0.5, si,
-                                  oldtri.pgeominfo[(oldtri.markededge+1)%3],
-                                  oldtri.pgeominfo[(oldtri.markededge+2)%3],
-                                  mesh.Point (newp), npgi);
+                    geo.PointBetween (mesh.Point (oldpi1), mesh.Point (oldpi2),
+                                      0.5, si,
+                                      oldtri.pgeominfo[(oldtri.markededge+1)%3],
+                                      oldtri.pgeominfo[(oldtri.markededge+2)%3],
+                                      mesh.Point (newp), npgi);
 		
 		  BTBisectTri (oldtri, newp, npgi, newtri1, newtri2);
 		
@@ -3505,28 +3508,16 @@ namespace netgen
 		  PointGeomInfo npgi1, npgi2;
 		
 		  int si = mesh.GetFaceDescriptor (oldquad.surfid).SurfNr();
-		  //		geom->GetSurface(si)->Project (mesh.Point(newp1));
-		  //		geom->GetSurface(si)->Project (mesh.Point(newp2));
-
-//                   (*testout)
-//                   cerr << "project point 1 " << newp1 << " old: " << mesh.Point(newp1);
-                  PointBetween (mesh.Point (edge1.I1()), mesh.Point (edge1.I2()),
-				0.5, si,
-				pgi11,
-				pgi12,
-				mesh.Point (newp1), npgi1);
-// 		  (*testout)
-//                   cerr << " new: " << mesh.Point(newp1) << endl;
-
-		
-//                   cerr << "project point 2 " << newp2 << " old: " << mesh.Point(newp2);
-                  PointBetween (mesh.Point (edge2.I1()), mesh.Point (edge2.I2()),
-				0.5, si,
-				pgi21,
-				pgi22,
-				mesh.Point (newp2), npgi2);
-//                   cerr << " new: " << mesh.Point(newp2) << endl;
-		
+                  geo.PointBetween(mesh.Point (edge1.I1()), mesh.Point (edge1.I2()),
+                                   0.5, si,
+                                   pgi11,
+                                   pgi12,
+                                   mesh.Point (newp1), npgi1);
+                  geo.PointBetween (mesh.Point (edge2.I1()), mesh.Point (edge2.I2()),
+                                    0.5, si,
+                                    pgi21,
+                                    pgi22,
+                                    mesh.Point (newp2), npgi2);
 
 		  BTBisectQuad (oldquad, newp1, npgi1, newp2, npgi2,
 				newquad1, newquad2);
@@ -3562,16 +3553,10 @@ namespace netgen
 		  
 		    EdgePointGeomInfo newepgi;
 		  
- 
-//                     
-//                     cerr << "move edgepoint " << newpi << " from " << mesh.Point(newpi);
-		    PointBetween (mesh.Point (seg[0]), mesh.Point (seg[1]),
-				  0.5, seg.surfnr1, seg.surfnr2, 
-				  seg.epgeominfo[0], seg.epgeominfo[1],
-				  mesh.Point (newpi), newepgi);
-// 		    cerr << " to " << mesh.Point (newpi) << endl;
-
-		    
+		    geo.PointBetweenEdge(mesh.Point (seg[0]), mesh.Point (seg[1]),
+                                         0.5, seg.surfnr1, seg.surfnr2,
+                                         seg.epgeominfo[0], seg.epgeominfo[1],
+                                         mesh.Point (newpi), newepgi);
 		    nseg1.epgeominfo[1] = newepgi;
 		    nseg2.epgeominfo[0] = newepgi;
 		  
@@ -3617,7 +3602,7 @@ namespace netgen
     if (opt.refine_hp)
       {
 	//
-	Array<int> v_order (mesh.GetNP());
+	NgArray<int> v_order (mesh.GetNP());
 	v_order = 0;
 	if (mesh.GetDimension() == 3)
 	  {
@@ -3807,7 +3792,8 @@ namespace netgen
     // write multilevel hierarchy to mesh:
     np = mesh.GetNP();
     mesh.mlbetweennodes.SetSize(np);
-    if (mesh.mglevels <= 2)
+    // if (mesh.mglevels <= 2)
+    if (mesh.level_nv.Size() <= 1)
       {
 	PrintMessage(4,"RESETTING mlbetweennodes");
 	for (int i = 1; i <= np; i++)
@@ -3817,6 +3803,9 @@ namespace netgen
 	  }
       }
 
+    mesh.level_nv.Append (np);
+
+    
     /*
       for (i = 1; i <= cutedges.GetNBags(); i++)
       for (j = 1; j <= cutedges.GetBagSize(i); j++)
@@ -3828,7 +3817,7 @@ namespace netgen
       }
     */
 
-    BitArray isnewpoint(np);
+    NgBitArray isnewpoint(np);
     isnewpoint.Clear();
 
     for (int i = 0; i < cutedges.Size(); i++)
@@ -3917,7 +3906,7 @@ namespace netgen
     // update identification tables
     for (int i = 1; i <= mesh.GetIdentifications().GetMaxNr(); i++)
       {
-	Array<int,PointIndex::BASE> identmap;
+	NgArray<int,PointIndex::BASE> identmap;
 
 	mesh.GetIdentifications().GetMap (i, identmap);
 
@@ -3982,11 +3971,12 @@ namespace netgen
 	  }
       }
 
-
+    
     // Check/Repair
 
     static bool repaired_once;
-    if(mesh.mglevels == 1)
+    // if(mesh.mglevels == 1)
+    if(mesh.level_nv.Size() == 1)
       repaired_once = false;
 
     //mesh.Save("before.vol");
@@ -3995,8 +3985,8 @@ namespace netgen
 	NgProfiler::RegionTimer * regt(NULL);
     regt = new NgProfiler::RegionTimer(reptimer); 
 
-    Array<ElementIndex> bad_elts;
-    Array<double> pure_badness;
+    NgArray<ElementIndex> bad_elts;
+    NgArray<double> pure_badness;
    
     if(do_repair || quality_loss != NULL)
       {
@@ -4132,63 +4122,5 @@ namespace netgen
     usemarkedelements = 0;
     refine_hp = 0;
     refine_p = 0;
-  }
-
-
-  Refinement :: Refinement ()
-  {
-    optimizer2d = NULL;
-  }
-
-  Refinement :: ~Refinement ()
-  {
-    ;
-  }
-
-
-  void Refinement :: PointBetween (const Point<3> & p1, const Point<3> & p2, double secpoint,
-				   int surfi, 
-				   const PointGeomInfo & gi1, 
-				   const PointGeomInfo & gi2,
-				   Point<3> & newp, PointGeomInfo & newgi) const
-  {
-    newp = p1+secpoint*(p2-p1);
-  }
-
-  void Refinement :: PointBetween (const Point<3> & p1, const Point<3> & p2, double secpoint,
-				   int surfi1, int surfi2, 
-				   const EdgePointGeomInfo & ap1, 
-				   const EdgePointGeomInfo & ap2,
-				   Point<3> & newp, EdgePointGeomInfo & newgi) const
-  {
-    //cout << "base class edge point between" << endl;
-    newp = p1+secpoint*(p2-p1);
-  }
-
-
-  Vec<3> Refinement :: GetTangent (const Point<3> & p, int surfi1, int surfi2,
-                                   const EdgePointGeomInfo & ap1) const
-  {
-    cerr << "Refinement::GetTangent not overloaded" << endl;
-    return Vec<3> (0,0,0);
-  }
-
-  Vec<3> Refinement :: GetNormal (const Point<3> & p, int surfi1, 
-                                  const PointGeomInfo & gi) const
-  {
-    cerr << "Refinement::GetNormal not overloaded" << endl;
-    return Vec<3> (0,0,0);
-  }
-
-
-  void Refinement :: ProjectToSurface (Point<3> & p, int surfi) const
-  {
-    if (printmessage_importance>0)
-      cerr << "Refinement :: ProjectToSurface    ERROR: no geometry set" << endl;
-  };
-
-  void Refinement :: ProjectToEdge (Point<3> & p, int surfi1, int surfi2, const EdgePointGeomInfo & egi) const
-  {
-    cerr << "Refinement::ProjectToEdge not overloaded" << endl;
   }
 }

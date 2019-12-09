@@ -1,8 +1,24 @@
 stages:
   - build
   - test
-  - deploy
+  - test_ngsolve
   - cleanup
+
+push_github_sourceforge:
+  stage: build
+  tags:
+    - linux
+    - docker
+  script:
+    - git remote add sourceforge ssh://mhochste@git.code.sf.net/p/netgen-mesher/git || true
+    - git remote add github git@github.com:NGSolve/netgen.git || true
+    - git remote update
+    - git checkout master
+    - git pull origin master
+    - git push sourceforge master
+    - git push github master
+  only:
+    - master
 
 ############################################
 # Windows
@@ -22,6 +38,7 @@ stages:
     - set SRC_DIR=%CI_DIR%\src
     - set NETGENDIR=%INSTALL_DIR%\bin
     - set PYTHONPATH=%INSTALL_DIR%\lib\site-packages
+    - set PATH=%NETGENDIR%;%PATH%
 
 build_win:
   <<: *win
@@ -39,7 +56,11 @@ build_win:
         -G Ninja
         -DCMAKE_INSTALL_PREFIX=%INSTALL_DIR%
         -DUSE_OCC=ON
+        -DOCC_LIBRARY=C:/install_opencascade_7.4.0_static/win64/vc14/lib/TKernel.lib
+        -DOCC_INCLUDE_DIR=C:/install_opencascade_7.4.0_static/inc
+        -DOCC_LINK_FREETYPE=ON
         -DUSE_CCACHE=ON
+        -DENABLE_UNIT_TESTS=ON
         -DCMAKE_BUILD_TYPE=Release
     - cmake --build . --target install --config Release
 
@@ -47,9 +68,11 @@ test_win:
   <<: *win
   stage: test
   script:
+    - cd tests\pytest
     - cd %NETGEN_BUILD_DIR%\netgen
-    - ctest -C Release -V
+    - ctest -C Release -V --output-on-failure
     - cd ..
+  needs: ["build_win"]
 
 cleanup_win:
   <<: *win
@@ -62,6 +85,7 @@ cleanup_win:
     - rd /s /q %CI_DIR%
   when: always
   allow_failure: true
+  needs: ["test_win"]
 
 ############################################
 # Ubuntu/Linux
@@ -77,17 +101,40 @@ cleanup_win:
   variables:
     UBUNTU_VERSION: "18.04"
 
-build_ubuntu:
+build_ubuntu_debug:
   <<: *ubuntu
   stage: build
   script:
-    - docker build -t netgen_${CI_BUILD_REF_NAME}:${UBUNTU_VERSION} -f tests/dockerfile .
-    - rm -f netgen_${CI_BUILD_REF_NAME}_$UBUNTU_VERSION.id
-    - docker run --cidfile netgen_${CI_BUILD_REF_NAME}_${UBUNTU_VERSION}.id -e CCACHE_DIR=/ccache -v /mnt/ccache:/ccache netgen_${CI_BUILD_REF_NAME}:${UBUNTU_VERSION} bash /root/src/netgen/tests/build.sh
-    - docker commit `cat netgen_${CI_BUILD_REF_NAME}_${UBUNTU_VERSION}.id` netgen_${CI_BUILD_REF_NAME}_installed:${UBUNTU_VERSION}
-    - rm netgen_${CI_BUILD_REF_NAME}_${UBUNTU_VERSION}.id
+    - docker build -t netgen_${CI_PIPELINE_ID}:${UBUNTU_VERSION} -f tests/dockerfile .
+    - rm -f netgen_${CI_PIPELINE_ID}_$UBUNTU_VERSION.id
+    - >-
+      docker run
+      --cidfile netgen_${CI_PIPELINE_ID}_${UBUNTU_VERSION}.id
+      -e CCACHE_DIR=/ccache
+      -v /mnt/ccache:/ccache
+      netgen_${CI_PIPELINE_ID}:${UBUNTU_VERSION}
+      bash /root/src/netgen/tests/build_debug.sh
+    - docker commit `cat netgen_${CI_PIPELINE_ID}_${UBUNTU_VERSION}.id` netgen_${CI_PIPELINE_ID}_installed:${UBUNTU_VERSION}
+    - rm netgen_${CI_PIPELINE_ID}_${UBUNTU_VERSION}.id
 
-test_ubuntu:
+build_ubuntu_mpi:
+  <<: *ubuntu
+  stage: build
+  script:
+    - docker build -t netgen_mpi_${CI_PIPELINE_ID}:${UBUNTU_VERSION} -f tests/dockerfile_mpi .
+    - rm -f netgen_mpi_${CI_PIPELINE_ID}_$UBUNTU_VERSION.id_mpi
+    - >-
+      docker run>-
+      --cidfile netgen_mpi_${CI_PIPELINE_ID}_${UBUNTU_VERSION}.id>-
+      -e CCACHE_DIR=/ccache
+      -e RUN_SLOW_TESTS=${RUN_SLOW_TESTS}
+      -v /mnt/ccache:/ccache
+      netgen_mpi_${CI_PIPELINE_ID}:${UBUNTU_VERSION}
+      bash /root/src/netgen/tests/build_mpi.sh
+    - docker commit `cat netgen_mpi_${CI_PIPELINE_ID}_${UBUNTU_VERSION}.id` netgen_mpi_${CI_PIPELINE_ID}_installed:${UBUNTU_VERSION}
+    - rm netgen_mpi_${CI_PIPELINE_ID}_${UBUNTU_VERSION}.id
+
+test_ubuntu_debug:
   <<: *ubuntu
   stage: test
   script:
@@ -95,24 +142,54 @@ test_ubuntu:
       docker run
       -e NETGENDIR=/opt/netgen/bin
       -e PYTHONPATH=/opt/netgen/lib/python3/dist-packages
-      netgen_${CI_BUILD_REF_NAME}_installed:${UBUNTU_VERSION}
-      bash -c 'cd /root/build/netgen && make test_netgen ARGS="-V"'
+      netgen_${CI_PIPELINE_ID}_installed:${UBUNTU_VERSION}
+      bash -c 'cd /root/build/netgen && make test_netgen ARGS="-V --output-on-failure"'
+  needs: ["build_ubuntu_debug"]
 
-# cpp guideline checks
-test_guidelines:
+test_ubuntu_mpi:
   <<: *ubuntu
   stage: test
   script:
-    - docker run -e CCACHE_DIR=/ccache -v /mnt/ccache:/ccache netgen_${CI_BUILD_REF_NAME}:${UBUNTU_VERSION} bash /root/src/netgen/tests/build_guidelines.sh
-  when: always
+    - >-
+      docker run
+      -e RUN_SLOW_TESTS=${RUN_SLOW_TESTS}
+      -e NETGENDIR=/opt/netgen/bin
+      -e PYTHONPATH=/opt/netgen/lib/python3/dist-packages
+      netgen_mpi_${CI_PIPELINE_ID}_installed:${UBUNTU_VERSION}
+      bash -c 'cd /root/build/netgen && make test_netgen ARGS="-V --output-on-failure"'
+  needs: ["build_ubuntu_mpi"]
+
+test_build_ngsolve:
+  <<: *ubuntu
   allow_failure: true
+  stage: test_ngsolve
+  script:
+    - >-
+      docker run
+      -e NETGENDIR=/opt/netgen/bin
+      -e PYTHONPATH=/opt/netgen/lib/python3/dist-packages
+      -e MKLROOT=/opt/intel/mkl
+      -v /opt/intel:/opt/intel
+      -e CCACHE_DIR=/ccache
+      -v /mnt/ccache:/ccache
+      netgen_${CI_PIPELINE_ID}_installed:${UBUNTU_VERSION}
+      bash -c 'cd /root/src/netgen/tests/ && ./build_ngsolve.sh'
+
+# cpp guideline checks
+# test_guidelines:
+#   <<: *ubuntu
+#   stage: test
+#   script:
+#     - docker run -e CCACHE_DIR=/ccache -v /mnt/ccache:/ccache netgen_${CI_PIPELINE_ID}:${UBUNTU_VERSION} bash /root/src/netgen/tests/build_guidelines.sh
+#   when: always
+#   allow_failure: true
 
 # check if it compiles without spdlog
 test_noSpdlog:
   <<: *ubuntu
   stage: test
   script:
-    - docker run -e CCACHE_DIR=/ccache -v /mnt/ccache:/ccache netgen_${CI_BUILD_REF_NAME}:${UBUNTU_VERSION} bash /root/src/netgen/tests/build_nospdlog.sh
+    - docker run -e CCACHE_DIR=/ccache -v /mnt/ccache:/ccache netgen_${CI_PIPELINE_ID}:${UBUNTU_VERSION} bash /root/src/netgen/tests/build_nospdlog.sh
 
 cleanup_ubuntu:
   stage: cleanup
@@ -122,8 +199,13 @@ cleanup_ubuntu:
     # remove intermediate and old docker images and containers
     - docker rm -f `docker ps --no-trunc -aq`
     - docker images --no-trunc -aqf "dangling=true" | xargs docker rmi -f || true
+    - docker rmi -f netgen_${CI_PIPELINE_ID}:${UBUNTU_VERSION} || true
+    - docker rmi -f netgen_${CI_PIPELINE_ID}_installed:${UBUNTU_VERSION} || true
+    - docker rmi -f netgen_mpi_${CI_PIPELINE_ID}:${UBUNTU_VERSION} || true
+    - docker rmi -f netgen_mpi_${CI_PIPELINE_ID}_installed:${UBUNTU_VERSION} || true
   when: always
   allow_failure: true
+
 
 ############################################
 # MacOSX
@@ -158,8 +240,12 @@ build_mac:
         -DUSE_NATIVE_ARCH=OFF
         -DUSE_CCACHE=ON
         -DENABLE_UNIT_TESTS=ON
-        -DCMAKE_OSX_DEPLOYMENT_TARGET=10.9
+        -DCMAKE_OSX_DEPLOYMENT_TARGET=10.12
         -DCMAKE_OSX_SYSROOT=/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk
+        -DUSE_OCC=ON
+        -DOCC_LIBRARY=/usr/local/opt/opencascade-7.4.0/lib/libTKernel.a
+        -DOCC_INCLUDE_DIR=/usr/local/opt/opencascade-7.4.0/include/opencascade
+        -DOCC_LINK_FREETYPE=ON
     - make -j5 install
 
 test_mac:
@@ -167,7 +253,8 @@ test_mac:
   stage: test
   script:
     - cd $BUILD_DIR/netgen
-    - ctest . --output-on-failure
+    - ctest . -V --output-on-failure
+  needs: ["build_mac"]
 
 cleanup_mac:
   <<: *mac
@@ -176,23 +263,5 @@ cleanup_mac:
     - rm -rf $ROOT_DIR
   when: always
   allow_failure: true
+  needs: ["test_mac"]
 
-############################################
-# Deploy stage
-############################################
-
-deploy_sourceforge:
-  stage: deploy
-  tags:
-    - linux
-    - docker
-  script:
-    - git remote add sourceforge ssh://mhochste@git.code.sf.net/p/netgen-mesher/git || true
-    - git remote add github git@github.com:NGSolve/netgen.git || true
-    - git remote update
-    - git checkout master
-    - git pull origin master
-    - git push sourceforge master
-    - git push github master
-  only:
-    - master

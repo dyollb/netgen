@@ -1,6 +1,7 @@
 #ifndef NETGEN_CORE_ARCHIVE_HPP
 #define NETGEN_CORE_ARCHIVE_HPP
 
+#include <array>                // for array
 #include <complex>              // for complex
 #include <cstring>              // for size_t, strlen
 #include <fstream>              // for ifstream, ofstream
@@ -21,7 +22,10 @@
 #include "version.hpp"          // for VersionInfo
 
 #ifdef NETGEN_PYTHON
-#include <pybind11/pybind11.h>
+namespace pybind11
+{
+  class object;
+}
 #endif // NETGEN_PYTHON
 
 namespace ngcore
@@ -121,27 +125,12 @@ namespace ngcore
     // Python should be archived using this Shallow function. If Shallow is called from C++ code
     // it archives the object normally.
     template<typename T>
-    Archive& Shallow(T& val)
-    {
-      static_assert(detail::is_any_pointer<T>, "ShallowArchive must be given pointer type!");
-#ifdef NETGEN_PYTHON
-      if(shallow_to_python)
-        {
-          if(is_output)
-            ShallowOutPython(pybind11::cast(val));
-          else
-            val = pybind11::cast<T>(ShallowInPython());
-        }
-      else
-#endif // NETGEN_PYTHON
-        *this & val;
-      return *this;
-    }
+    Archive& Shallow(T& val); // implemented in python_ngcore.hpp
 
 #ifdef NETGEN_PYTHON
     virtual void ShallowOutPython(const pybind11::object& /*unused*/)
     { throw UnreachableCodeException{}; }
-    virtual pybind11::object ShallowInPython()
+    virtual void ShallowInPython(pybind11::object &)
     { throw UnreachableCodeException{}; }
 #endif // NETGEN_PYTHON
 
@@ -640,12 +629,12 @@ namespace ngcore
       static_assert(detail::all_of_tmpl<std::is_base_of<Bases,T>::value...>,
                     "Variadic template arguments must be base classes of T");
       detail::ClassArchiveInfo info {};
-      info.creator = [this,&info](const std::type_info& ti) -> void*
+      info.creator = [](const std::type_info& ti) -> void*
                      { return typeid(T) == ti ? detail::constructIfPossible<T>()
                          : Archive::Caster<T, Bases...>::tryUpcast(ti, detail::constructIfPossible<T>()); };
-      info.upcaster = [this](const std::type_info& ti, void* p) -> void*
+      info.upcaster = [/*this*/](const std::type_info& ti, void* p) -> void*
                       { return typeid(T) == ti ? p : Archive::Caster<T, Bases...>::tryUpcast(ti, static_cast<T*>(p)); };
-      info.downcaster = [this](const std::type_info& ti, void* p) -> void*
+      info.downcaster = [/*this*/](const std::type_info& ti, void* p) -> void*
                         { return typeid(T) == ti ? p : Archive::Caster<T, Bases...>::tryDowncast(ti, p); };
       Archive::SetArchiveRegister(std::string(Demangle(typeid(T).name())),info);
     }
@@ -657,7 +646,7 @@ namespace ngcore
   class NGCORE_API BinaryOutArchive : public Archive
   {
     static constexpr size_t BUFFERSIZE = 1024;
-    char buffer[BUFFERSIZE] = {};
+    std::array<char,BUFFERSIZE> buffer{};
     size_t ptr = 0;
   protected:
     std::shared_ptr<std::ostream> stream;
@@ -701,7 +690,7 @@ namespace ngcore
     }
     Archive & operator & (char *& str) override
     {
-      long len = str ? strlen (str) : -1;
+      long len = str ? static_cast<long>(strlen (str)) : -1;
       (*this) & len;
       FlushBuffer();
       if(len > 0)
@@ -838,7 +827,7 @@ namespace ngcore
     }
     Archive & operator & (char *& str) override
     {
-      long len = str ? strlen (str) : -1;
+      long len = str ? static_cast<long>(strlen (str)) : -1;
       *this & len;
       if(len > 0)
         {
@@ -908,105 +897,6 @@ namespace ngcore
     }
   };
 
-#ifdef NETGEN_PYTHON
-
-  template<typename ARCHIVE>
-  class PyArchive : public ARCHIVE
-  {
-  private:
-    pybind11::list lst;
-    size_t index = 0;
-    std::map<std::string, VersionInfo> version_needed;
-  protected:
-    using ARCHIVE::stream;
-    using ARCHIVE::version_map;
-    using ARCHIVE::logger;
-    using ARCHIVE::GetLibraryVersions;
-  public:
-    PyArchive(const pybind11::object& alst = pybind11::none()) :
-      ARCHIVE(std::make_shared<std::stringstream>()),
-      lst(alst.is_none() ? pybind11::list() : pybind11::cast<pybind11::list>(alst))
-    {
-      ARCHIVE::shallow_to_python = true;
-      if(Input())
-        {
-          stream = std::make_shared<std::stringstream>
-            (pybind11::cast<pybind11::bytes>(lst[pybind11::len(lst)-1]));
-          *this & version_needed;
-          logger->debug("versions needed for unpickling = {}", version_needed);
-          for(auto& libversion : version_needed)
-            if(libversion.second > GetLibraryVersion(libversion.first))
-              throw Exception("Error in unpickling data:\nLibrary " + libversion.first +
-                              " must be at least " + libversion.second.to_string());
-          stream = std::make_shared<std::stringstream>
-            (pybind11::cast<pybind11::bytes>(lst[pybind11::len(lst)-2]));
-          *this & version_map;
-          stream = std::make_shared<std::stringstream>
-            (pybind11::cast<pybind11::bytes>(lst[pybind11::len(lst)-3]));
-        }
-    }
-
-    void NeedsVersion(const std::string& library, const std::string& version) override
-    {
-      if(Output())
-        {
-          logger->debug("Need version {} of library {}.", version, library);
-          version_needed[library] = version_needed[library] > version ? version_needed[library] : version;
-        }
-    }
-
-    using ARCHIVE::Output;
-    using ARCHIVE::Input;
-    using ARCHIVE::FlushBuffer;
-    using ARCHIVE::operator&;
-    using ARCHIVE::operator<<;
-    using ARCHIVE::GetVersion;
-    void ShallowOutPython(const pybind11::object& val) override { lst.append(val); }
-    pybind11::object ShallowInPython() override { return lst[index++]; }
-
-    pybind11::list WriteOut()
-    {
-      FlushBuffer();
-      lst.append(pybind11::bytes(std::static_pointer_cast<std::stringstream>(stream)->str()));
-      stream = std::make_shared<std::stringstream>();
-      *this & GetLibraryVersions();
-      FlushBuffer();
-      lst.append(pybind11::bytes(std::static_pointer_cast<std::stringstream>(stream)->str()));
-      stream = std::make_shared<std::stringstream>();
-      logger->debug("Writeout version needed = {}", version_needed);
-      *this & version_needed;
-      FlushBuffer();
-      lst.append(pybind11::bytes(std::static_pointer_cast<std::stringstream>(stream)->str()));
-      return lst;
-    }
-  };
-
-  template<typename T, typename T_ARCHIVE_OUT=BinaryOutArchive, typename T_ARCHIVE_IN=BinaryInArchive>
-  auto NGSPickle()
-  {
-    return pybind11::pickle([](T* self)
-                      {
-                        PyArchive<T_ARCHIVE_OUT> ar;
-                        ar & self;
-                        auto output = pybind11::make_tuple(ar.WriteOut());
-                        GetLogger("Archive")->trace("Pickling output for object of type {} = {}",
-                                                    Demangle(typeid(T).name()),
-                                                    std::string(pybind11::str(output)));
-                        return output;
-                      },
-                      [](pybind11::tuple state)
-                      {
-                        T* val = nullptr;
-                        GetLogger("Archive")->trace("State for unpickling of object of type {} = {}",
-                                                    Demangle(typeid(T).name()),
-                                                    std::string(pybind11::str(state[0])));
-                        PyArchive<T_ARCHIVE_IN> ar(state[0]);
-                        ar & val;
-                        return val;
-                      });
-  }
-
-#endif // NETGEN_PYTHON
 } // namespace ngcore
 
 #endif // NETGEN_CORE_ARCHIVE_HPP

@@ -1,12 +1,39 @@
 
-add_library(ngcore SHARED archive.cpp logging.cpp paje_trace.cpp utils.cpp profiler.cpp)
+add_library(ngcore SHARED
+  archive.cpp
+  bitarray.cpp
+  exception.cpp
+  localheap.cpp
+  logging.cpp
+  flags.cpp
+  paje_trace.cpp
+  profiler.cpp
+  table.cpp
+  taskmanager.cpp
+  utils.cpp
+  )
+
+# Pybind11 2.3 Issue https://github.com/pybind/pybind11/issues/1604
+if ("${CMAKE_CXX_COMPILER_ID}" MATCHES "Clang")
+  target_compile_options(ngcore PUBLIC -fsized-deallocation -faligned-allocation)
+endif()
+
+if(USE_PYTHON)
+  target_sources(ngcore PRIVATE python_ngcore.cpp)
+  target_compile_definitions(ngcore PUBLIC NETGEN_PYTHON NG_PYTHON)
+endif(USE_PYTHON)
 
 target_compile_definitions(ngcore PRIVATE NGCORE_EXPORTS)
 if(NOT WIN32)
   target_compile_options(ngcore PRIVATE -fvisibility=hidden)
 endif(NOT WIN32)
 
+if(WIN32)
+  target_compile_options(ngcore PUBLIC /bigobj)
+endif(WIN32)
+
 target_compile_definitions(ngcore PUBLIC $<$<CONFIG:DEBUG>:NETGEN_ENABLE_CHECK_RANGE>)
+target_include_directories(ngcore INTERFACE $<INSTALL_INTERFACE:${NG_INSTALL_DIR_INCLUDE}> $<INSTALL_INTERFACE:${NG_INSTALL_DIR_INCLUDE}/include>)
 
 if(CHECK_RANGE)
   target_compile_definitions(ngcore PUBLIC NETGEN_ENABLE_CHECK_RANGE)
@@ -26,14 +53,12 @@ endif(USE_SPDLOG)
 
 install(TARGETS ngcore DESTINATION ${NG_INSTALL_DIR} COMPONENT netgen)
 
-if(USE_PYTHON)
-  target_compile_definitions(ngcore PUBLIC NETGEN_PYTHON)
-  target_include_directories(ngcore PUBLIC ${PYTHON_INCLUDE_DIRS})
-  target_link_libraries(ngcore PUBLIC ${PYTHON_LIBRARIES})
-endif(USE_PYTHON)
+target_link_libraries(ngcore PUBLIC netgen_mpi PRIVATE netgen_python ${CMAKE_THREAD_LIBS_INIT})
 
 install(FILES ngcore.hpp archive.hpp type_traits.hpp version.hpp ngcore_api.hpp logging.hpp
   exception.hpp symboltable.hpp paje_trace.hpp utils.hpp profiler.hpp mpi_wrapper.hpp
+  array.hpp taskmanager.hpp concurrentqueue.h localheap.hpp python_ngcore.hpp flags.hpp
+  xbool.hpp signal.hpp bitarray.hpp table.hpp hashtable.hpp
   DESTINATION ${NG_INSTALL_DIR_INCLUDE}/core COMPONENT netgen_devel)
 
 if(ENABLE_CPP_CORE_GUIDELINES_CHECK)
@@ -41,8 +66,8 @@ if(ENABLE_CPP_CORE_GUIDELINES_CHECK)
 endif(ENABLE_CPP_CORE_GUIDELINES_CHECK)
 
 if(USE_PYTHON)
-  pybind11_add_module(pyngcore SHARED python_ngcore.cpp)
-  target_link_libraries(pyngcore PUBLIC ngcore ${PYTHON_LIBRARIES})
+  pybind11_add_module(pyngcore SHARED python_ngcore_export.cpp)
+  target_link_libraries(pyngcore PUBLIC ngcore netgen_python)
   set_target_properties(pyngcore PROPERTIES INSTALL_RPATH "${NG_RPATH_TOKEN}/${NETGEN_PYTHON_RPATH}")
   install(TARGETS pyngcore DESTINATION ${NG_INSTALL_DIR_PYTHON} COMPONENT netgen)
 endif(USE_PYTHON)

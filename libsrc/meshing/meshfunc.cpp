@@ -12,14 +12,15 @@ namespace netgen
 
 
   // extern double teterrpow; 
-  MESHING3_RESULT MeshVolume (MeshingParameters & mp, Mesh& mesh3d)
+  MESHING3_RESULT MeshVolume (const MeshingParameters & c_mp, Mesh& mesh3d)
   {
     static Timer t("MeshVolume"); RegionTimer reg(t);
-    
+
+     MeshingParameters mp = c_mp; // copy mp to change them here
      int oldne;
      int meshed;
 
-     Array<INDEX_2> connectednodes;
+     NgArray<INDEX_2> connectednodes;
      
      if (!mesh3d.HasLocalHFunction()) mesh3d.CalcLocalH(mp.grading);
 
@@ -144,7 +145,8 @@ namespace netgen
 		mpquad.check_impossible = qstep == 1;   // for prisms only (air domain in trafo)
 		
 		
-		for (PointIndex pi = mesh3d.Points().Begin(); pi < mesh3d.Points().End(); pi++)
+		// for (PointIndex pi = mesh3d.Points().Begin(); pi < mesh3d.Points().End(); pi++)
+                for (PointIndex pi : mesh3d.Points().Range())
 		  meshing.AddPoint (mesh3d[pi], pi);
 
                 /*
@@ -237,10 +239,11 @@ namespace netgen
               //	  Meshing3 meshing(rulefile);
               Meshing3 meshing(tetrules);
 
-              Array<int, PointIndex::BASE> glob2loc(mesh3d.GetNP());
+              NgArray<int, PointIndex::BASE> glob2loc(mesh3d.GetNP());
               glob2loc = -1;
 
-              for (PointIndex pi = mesh3d.Points().Begin(); pi < mesh3d.Points().End(); pi++)
+              // for (PointIndex pi = mesh3d.Points().Begin(); pi < mesh3d.Points().End(); pi++)
+              for (PointIndex pi : mesh3d.Points().Range())
                 if (domain_bbox.IsIn (mesh3d[pi]))
                     glob2loc[pi] = 
                     meshing.AddPoint (mesh3d[pi], pi);
@@ -637,11 +640,14 @@ namespace netgen
 
 
 
-  MESHING3_RESULT OptimizeVolume (MeshingParameters & mp, 
+  MESHING3_RESULT OptimizeVolume (const MeshingParameters & mp, 
 				  Mesh & mesh3d)
     //				  const CSGeometry * geometry)
   {
     static Timer t("OptimizeVolume"); RegionTimer reg(t);
+    RegionTaskManager rtm(mp.parallel_meshing ? mp.nthreads : 0);
+    const char* savetask = multithread.task;
+    multithread.task = "Optimize Volume";
     
     int i;
 
@@ -659,7 +665,7 @@ namespace netgen
     */
 
     mesh3d.CalcSurfacesOfNode();
-    for (i = 1; i <= mp.optsteps3d; i++)
+    for (auto i : Range(mp.optsteps3d))
       {
 	if (multithread.terminate)
 	  break;
@@ -668,12 +674,13 @@ namespace netgen
 
 	// teterrpow = mp.opterrpow;
 	// for (size_t j = 1; j <= strlen(mp.optimize3d); j++)
-        for (size_t j = 1; j <= mp.optimize3d.length(); j++)
+        for (auto j : Range(mp.optimize3d.size()))
 	  {
+            multithread.percent = 100.* (double(j)/mp.optimize3d.size() + i)/mp.optsteps3d;
 	    if (multithread.terminate)
 	      break;
 
-	    switch (mp.optimize3d[j-1])
+	    switch (mp.optimize3d[j])
 	      {
 	      case 'c': optmesh.CombineImprove(mesh3d, OPT_REST); break;
 	      case 'd': optmesh.SplitImprove(mesh3d); break;
@@ -690,10 +697,11 @@ namespace netgen
 	      case 'j': mesh3d.ImproveMeshJacobian(mp); break;
 	      }
 	  }
-	mesh3d.mglevels = 1;
+	// mesh3d.mglevels = 1;
 	MeshQuality3d (mesh3d);
       }
   
+    multithread.task = savetask;
     return MESHING3_OK;
   }
 

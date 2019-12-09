@@ -97,19 +97,22 @@ namespace netgen
 
 
 
-#define MULTIPOINTGEOMINFO_MAX 100
   class MultiPointGeomInfo
   {
-    int cnt;
-    PointGeomInfo mgi[MULTIPOINTGEOMINFO_MAX];
+    ArrayMem<PointGeomInfo, 100> mgi;
   public:
-    MultiPointGeomInfo () { cnt = 0; }
     int AddPointGeomInfo (const PointGeomInfo & gi);
-    void Init () { cnt = 0; }
-    void DeleteAll () { cnt = 0; }
+    void Init () { mgi.SetSize(0); }
+    void DeleteAll () { mgi.SetSize(0); }
 
-    int GetNPGI () const { return cnt; }
+    int GetNPGI () const { return mgi.Size(); }
     const PointGeomInfo & GetPGI (int i) const { return mgi[i-1]; }
+
+    MultiPointGeomInfo () = default;
+    MultiPointGeomInfo (const MultiPointGeomInfo&) = default;
+    MultiPointGeomInfo (MultiPointGeomInfo &&) = default;
+    MultiPointGeomInfo & operator= (const MultiPointGeomInfo&) = delete;
+    MultiPointGeomInfo & operator= (MultiPointGeomInfo&&) = default;
   };
 
 
@@ -150,30 +153,53 @@ namespace netgen
   {
     int i;
   public:
+    class t_invalid { public: constexpr t_invalid() = default; };
+    static constexpr t_invalid INVALID{};
+    
     PointIndex () = default;
     PointIndex (const PointIndex&) = default;
     PointIndex (PointIndex &&) = default;
     PointIndex & operator= (const PointIndex&) = default;
     PointIndex & operator= (PointIndex&&) = default;
      
-    PointIndex (int ai) : i(ai) { ; }
+    constexpr PointIndex (int ai) : i(ai)
+    {
+#ifdef DEBUG
+      if (ai < PointIndex::BASE)
+        cout << "illegal PointIndex, use PointIndex::INVALID instead" << endl;
+        // throw Exception("illegal PointIndex, use PointIndex::INVALID instead");
+#endif
+    }
+    constexpr PointIndex (t_invalid inv) : i(PointIndex::BASE-1) { ; }
     // PointIndex & operator= (const PointIndex &ai) { i = ai.i; return *this; }
-    operator int () const { return i; }
+    constexpr operator int () const { return i; }
     PointIndex operator++ (int) { PointIndex hi(*this); i++; return hi; }
     PointIndex operator-- (int) { PointIndex hi(*this); i--; return hi; }
-    PointIndex operator++ () { i++; return *this; }
+    PointIndex & operator++ () { i++; return *this; }
     PointIndex operator-- () { i--; return *this; }
     void Invalidate() { i = PointIndex::BASE-1; }
     bool IsValid() const { return i != PointIndex::BASE-1; }
 #ifdef BASE0
-    enum { BASE = 0 };
+    static constexpr size_t BASE = 0;
 #else
-    enum { BASE = 1 };
+    static constexpr size_t BASE = 1;
 #endif  
 
     void DoArchive (Archive & ar) { ar & i; }
   };
 
+}
+
+namespace ngcore
+{
+  template<> 
+  constexpr netgen::PointIndex IndexBASE<netgen::PointIndex> () { return netgen::PointIndex(netgen::PointIndex::BASE); }
+}
+
+namespace netgen
+{
+
+  
   inline istream & operator>> (istream & ist, PointIndex & pi)
   {
     int i; ist >> i; pi = PointIndex(i); return ist;
@@ -229,22 +255,24 @@ namespace netgen
     int i;
   public:
     SurfaceElementIndex () = default;
-    SurfaceElementIndex (int ai) : i(ai) { ; }
+    constexpr SurfaceElementIndex (int ai) : i(ai) { ; }
     /*
     SurfaceElementIndex & operator= (const SurfaceElementIndex & ai) 
     { i = ai.i; return *this; }
     */
     SurfaceElementIndex & operator= (const SurfaceElementIndex & ai) = default;
     SurfaceElementIndex & operator= (int ai) { i = ai; return *this; }
-    operator int () const { return i; }
+    constexpr operator int () const { return i; }
     SurfaceElementIndex operator++ (int) { SurfaceElementIndex hi(*this); i++; return hi; }
     SurfaceElementIndex operator-- (int) { SurfaceElementIndex hi(*this); i--; return hi; }
     SurfaceElementIndex & operator++ () { ++i; return *this; }
     SurfaceElementIndex & operator-- () { --i; return *this; }
     SurfaceElementIndex & operator+= (int inc) { i+=inc; return *this; }
-
     void DoArchive (Archive & ar) { ar & i; }
   };
+  
+  inline void SetInvalid (SurfaceElementIndex & id) { id = -1; }
+  inline bool IsInvalid (SurfaceElementIndex & id) { return id == -1; }
 
   inline istream & operator>> (istream & ist, SurfaceElementIndex & pi)
   {
@@ -266,8 +294,10 @@ namespace netgen
     { i = ai.i; return *this; }
     SegmentIndex & operator= (int ai) { i = ai; return *this; }
     operator int () const { return i; }
-    SegmentIndex & operator++ (int) { i++; return *this; }
-    SegmentIndex & operator-- (int) { i--; return *this; }
+    SegmentIndex& operator++ () { ++i; return *this; }
+    SegmentIndex& operator-- () { --i; return *this; }
+    SegmentIndex operator++ (int) { return i++; }
+    SegmentIndex operator-- (int) { return i--; }
   };
 
   inline istream & operator>> (istream & ist, SegmentIndex & pi)
@@ -343,7 +373,8 @@ namespace netgen
 
 
 
-  typedef Array<MeshPoint, PointIndex::BASE, PointIndex> T_POINTS;
+  // typedef NgArray<MeshPoint, PointIndex::BASE, PointIndex> T_POINTS;
+  typedef Array<MeshPoint, PointIndex> T_POINTS;
 
 
 
@@ -391,6 +422,23 @@ namespace netgen
     Element2d (Element2d &&) = default;
     Element2d & operator= (const Element2d &) = default;
     Element2d & operator= (Element2d &&) = default;
+    Element2d & operator= (initializer_list<PointIndex> list)
+    {
+      size_t cnt = 0;
+      for (auto val : list)
+        pnum[cnt++] = val;
+      return *this;
+    }
+    Element2d & operator= (initializer_list<tuple<PointIndex,PointGeomInfo>> list)
+    {
+      size_t cnt = 0;
+      for (auto val : list)
+        {
+          pnum[cnt] = get<0>(val);
+          geominfo[cnt++] = get<1>(val);
+        }
+      return *this;
+    }
     ///
     DLL_HEADER Element2d (int anp);
     ///
@@ -456,12 +504,14 @@ namespace netgen
     ///
     const PointIndex & operator[] (int i) const { return pnum[i]; }
 
-    FlatArray<const PointIndex> PNums () const 
-    { return FlatArray<const PointIndex> (np, &pnum[0]); }
-    FlatArray<PointIndex> PNums ()
-    { return FlatArray<PointIndex> (np, &pnum[0]); }
-    auto Vertices() const
-    { return FlatArray<const PointIndex> (GetNV(), &pnum[0]); }
+    auto PNums () const { return FlatArray<const PointIndex> (np, &pnum[0]); }
+    auto PNums ()  { return FlatArray<PointIndex> (np, &pnum[0]); }
+    template <int NP>
+    auto PNums() const { return FlatArray<const PointIndex> (NP, &pnum[0]); }
+    auto Vertices() const { return FlatArray<const PointIndex> (GetNV(), &pnum[0]); }
+
+    auto GeomInfo() const { return FlatArray<const PointGeomInfo> (np, &geominfo[0]); }
+    auto GeomInfo() { return FlatArray<PointGeomInfo> (np, &geominfo[0]); }
     
     ///
     PointIndex & PNum (int i) { return pnum[i-1]; }
@@ -531,41 +581,41 @@ namespace netgen
 
     /// get number of 'integration points'
     int GetNIP () const;
-    void GetIntegrationPoint (int ip, Point2d & p, double & weight) const;
+    void GetIntegrationPoint (int ip, Point<2> & p, double & weight) const;
 
-    void GetTransformation (int ip, const Array<Point2d> & points,
+    void GetTransformation (int ip, const NgArray<Point<2>> & points,
 			    class DenseMatrix & trans) const;
     void GetTransformation (int ip, class DenseMatrix & pmat,
 			    class DenseMatrix & trans) const;
 
-    void GetShape (const Point2d & p, class Vector & shape) const;
+    void GetShape (const Point<2> & p, class Vector & shape) const;
     void GetShapeNew (const Point<2> & p, class FlatVector & shape) const;
     template <typename T>
     void GetShapeNew (const Point<2,T> & p, TFlatVector<T> shape) const;    
     /// matrix 2 * np
-    void GetDShape (const Point2d & p, class DenseMatrix & dshape) const;
+    void GetDShape (const Point<2> & p, class DenseMatrix & dshape) const;
     template <typename T>
     void GetDShapeNew (const Point<2,T> & p, class MatrixFixWidth<2,T> & dshape) const;
     
     /// matrix 2 * np
-    void GetPointMatrix (const Array<Point2d> & points,
+    void GetPointMatrix (const NgArray<Point<2>> & points,
 			 class DenseMatrix & pmat) const; 
 
     void ComputeIntegrationPointData () const;
   
 
-    double CalcJacobianBadness (const Array<Point2d> & points) const;
+    double CalcJacobianBadness (const NgArray<Point<2>> & points) const;
     double CalcJacobianBadness (const T_POINTS & points, 
 				const Vec<3> & n) const;
-    double CalcJacobianBadnessDirDeriv (const Array<Point2d> & points,
-					int pi, Vec2d & dir, double & dd) const;
+    double CalcJacobianBadnessDirDeriv (const NgArray<Point<2>> & points,
+					int pi, Vec<2> & dir, double & dd) const;
 
 
     
     void Delete ()
     {
       deleted = 1;
-      for (PointIndex & p : pnum) p.Invalidate(); 
+      // for (PointIndex & p : pnum) p.Invalidate(); 
     }
     
     bool IsDeleted () const 
@@ -579,17 +629,17 @@ namespace netgen
 
     // Philippose - 08 August 2010
     // Access functions for the new property: visible
-    void Visible(bool vis = 1) 
+    void Visible(bool vis = true) 
     { visible = vis; }
     bool IsVisible () const 
     { return visible; }
    
-    void SetRefinementFlag (bool rflag = 1) 
+    void SetRefinementFlag (bool rflag = true) 
     { refflag = rflag; }
     bool TestRefinementFlag () const
     { return refflag; }
 
-    void SetStrongRefinementFlag (bool rflag = 1) 
+    void SetStrongRefinementFlag (bool rflag = true) 
     { strongrefflag = rflag; }
     bool TestStrongRefinementFlag () const
     { return strongrefflag; }
@@ -748,8 +798,12 @@ namespace netgen
     ///
     const PointIndex & operator[] (int i) const { return pnum[i]; }
 
-    FlatArray<const PointIndex> PNums () const 
-    { return FlatArray<const PointIndex> (np, &pnum[0]); }
+    auto PNums () const { return FlatArray<const PointIndex> (np, &pnum[0]); }
+    auto PNums () { return FlatArray<PointIndex> (np, &pnum[0]); }    
+    template <int NP>
+    auto PNums() const { return FlatArray<const PointIndex> (NP, &pnum[0]); }
+
+    FlatArray<const PointIndex> Vertices() const { return { GetNV(), &pnum[0] }; }
 
     ///
     PointIndex & PNum (int i) { return pnum[i-1]; }
@@ -763,11 +817,12 @@ namespace netgen
     void DoArchive (Archive & ar)
     {
       short _np, _typ;
+      bool _curved;
       if (ar.Output())
-        { _np = np; _typ = typ; }
-      ar & _np & _typ & index;
+        { _np = np; _typ = typ; _curved = is_curved; }
+      ar & _np & _typ & index & _curved;
       if (ar.Input())
-        { np = _np; typ = ELEMENT_TYPE(_typ); }
+        { np = _np; typ = ELEMENT_TYPE(_typ); is_curved = _curved; }
       for (size_t i = 0; i < np; i++)
         ar & pnum[i];
     }
@@ -821,15 +876,15 @@ namespace netgen
     void Invert ();
 
     /// split into 4 node tets
-    void GetTets (Array<Element> & locels) const;
+    void GetTets (NgArray<Element> & locels) const;
     /// split into 4 node tets, local point nrs
-    void GetTetsLocal (Array<Element> & locels) const;
+    void GetTetsLocal (NgArray<Element> & locels) const;
     /// returns coordinates of nodes
-    // void GetNodesLocal (Array<Point<3> > & points) const;
-    void GetNodesLocalNew (Array<Point<3> > & points) const;
+    // void GetNodesLocal (NgArray<Point<3> > & points) const;
+    void GetNodesLocalNew (NgArray<Point<3> > & points) const;
 
     /// split surface into 3 node trigs
-    void GetSurfaceTriangles (Array<Element2d> & surftrigs) const;
+    void GetSurfaceTriangles (NgArray<Element2d> & surftrigs) const;
 
 
     /// get number of 'integration points'
@@ -1013,12 +1068,12 @@ namespace netgen
 
     int GetNP() const
     {
-      return (pnums[2] < 0) ? 2 : 3;
+      return pnums[2].IsValid() ? 3 : 2;
     }
 
     ELEMENT_TYPE GetType() const
     {
-      return (pnums[2] < 0) ? SEGMENT : SEGMENT3;
+      return pnums[2].IsValid() ? SEGMENT3 : SEGMENT;
     }
   
     PointIndex & operator[] (int i) { return pnums[i]; }
@@ -1076,7 +1131,7 @@ namespace netgen
     // Add capability to store surface colours along with 
     // other face data
     /// surface colour (Default: R=0.0 ; G=1.0 ; B=0.0)
-    Vec3d surfcolour;
+    Vec<3> surfcolour;
     
     ///
     static string default_bcname;
@@ -1108,7 +1163,7 @@ namespace netgen
 
     // Philippose - 06/07/2009
     // Get Surface colour
-    Vec3d SurfColour () const { return surfcolour; }
+    Vec<3> SurfColour () const { return surfcolour; }
     DLL_HEADER const string & GetBCName () const { return *bcname; }
     // string * BCNamePtr () { return bcname; }
     // const string * BCNamePtr () const  { return bcname; }
@@ -1119,7 +1174,7 @@ namespace netgen
     void SetBCName (string * bcn); //  { bcname = bcn; }
     // Philippose - 06/07/2009
     // Set the surface colour
-    void SetSurfColour (Vec3d colour) { surfcolour = colour; }
+    void SetSurfColour (Vec<3> colour) { surfcolour = colour; }
 
     void SetDomainInSingular (double v) { domin_singular = v; }
     void SetDomainOutSingular (double v) { domout_singular = v; }
@@ -1179,13 +1234,13 @@ namespace netgen
        // P .. plot, pause
        // c .. combine
        **/
-    string optimize2d = "smsmsmSmSmSm";
+    string optimize2d = "smcmSmcmSmcm";
     /// number of 2d optimization steps
     int optsteps2d = 3;
     /// power of error (to approximate max err optimization)
     double opterrpow = 2;
     /// do block filling ?  
-    int blockfill = 1;
+    bool blockfill = true;
     /// block filling up to distance
     double filldist = 0.1;
     /// radius of local environment (times h)
@@ -1193,31 +1248,33 @@ namespace netgen
     /// radius of active environment (times h)
     double relinnersafety = 3;
     /// use local h ?
-    int uselocalh = 1;
+    bool uselocalh = true;
     /// grading for local h
     double grading = 0.3;
     /// use delaunay meshing
-    int delaunay = 1;
+    bool delaunay = true;
     /// maximal mesh size
     double maxh = 1e10;
     /// minimal mesh size
     double minh = 0.0;
     /// file for meshsize
     string meshsizefilename = "";
+    /// restrict h based on close edges
+    optional<double> closeedgefac = nullopt;
     /// start surfacemeshing from everywhere in surface
-    int startinsurface = 0;
+    bool startinsurface = false;
     /// check overlapping surfaces (debug)
-    int checkoverlap = 1;
+    bool checkoverlap = true;
     /// check overlapping surface mesh before volume meshing
-    int checkoverlappingboundary = 1;
+    bool checkoverlappingboundary = true;
     /// check chart boundary (sometimes too restrictive)
-    int checkchartboundary = 1;
+    bool checkchartboundary = true;
     /// safety factor for curvatures (elements per radius)
     double curvaturesafety = 2;
     /// minimal number of segments per edge
     double segmentsperedge = 1;
     /// use parallel threads
-    int parthread = 0;
+    bool parthread = 0;
     /// weight of element size w.r.t element shape
     double elsizeweight = 0.2;
     /// init with default values
@@ -1245,24 +1302,29 @@ namespace netgen
     /// limit for max element angle (150-180)
     double badellimit = 175;
 
-    bool check_impossible = 0;
+    bool check_impossible = false;
 
     int only3D_domain_nr = 0;
   
     ///
-    int secondorder = 0;
+    bool secondorder = false;
     /// high order element curvature
     int elementorder = 1;
     /// quad-dominated surface meshing
-    int quad = 0;
+    bool quad = false;
     ///
     bool try_hexes = false;
     ///
-    int inverttets = 0;
+    bool inverttets = false;
     ///
-    int inverttrigs = 0;
+    bool inverttrigs = false;
     ///
-    int autozrefine = 0;
+    bool autozrefine = false;
+
+    bool parallel_meshing = true;
+    int nthreads = 4;
+
+    Flags geometrySpecificParameters;
     ///
     MeshingParameters ();
     ///
@@ -1287,10 +1349,10 @@ namespace netgen
       MeshSizePoint & operator= (const MeshSizePoint &) = default;
       MeshSizePoint & operator= (MeshSizePoint &&) = default;      
     };
-    Array<MeshSizePoint> meshsize_points;
+    NgArray<MeshSizePoint> meshsize_points;
     
     void (*render_function)(bool) = NULL;
-    void Render(bool blocking = false)
+    void Render(bool blocking = false) const
     {
       if (render_function) 
         (*render_function)(blocking);
@@ -1426,7 +1488,7 @@ namespace netgen
     /// sorted by identification nr
     TABLE<INDEX_2> idpoints_table;
 
-    Array<ID_TYPE> type;
+    NgArray<ID_TYPE> type;
 
     /// number of identifications (or, actually used identifications ?)
     int maxidentnr;
@@ -1472,7 +1534,7 @@ namespace netgen
     }
 
     ///
-    void GetMap (int identnr, Array<int,PointIndex::BASE> & identmap, bool symmetric = false) const;
+    void GetMap (int identnr, NgArray<int,PointIndex::BASE> & identmap, bool symmetric = false) const;
     ///
     ID_TYPE GetType(int identnr) const
     {
@@ -1489,7 +1551,7 @@ namespace netgen
     }
     
     ///
-    void GetPairs (int identnr, Array<INDEX_2> & identpairs) const;
+    void GetPairs (int identnr, NgArray<INDEX_2> & identpairs) const;
     ///
     int GetMaxNr () const { return maxidentnr; }  
 

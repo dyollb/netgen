@@ -23,7 +23,6 @@ namespace netgen
 // #include <iostream>
 /** output stream for testing.
   testout is opened by main */
-DLL_HEADER extern ostream * testout;
 
 /** use instead of cout */
 DLL_HEADER extern ostream * mycout;
@@ -39,26 +38,6 @@ DLL_HEADER extern void MyError (const char * ch);
 /** Rings the bell.
   Produces nr beeps. */
 DLL_HEADER extern void MyBeep (int nr = 1);
-
-
-template <class T>
-inline void Swap (T & a, T & b)
-{
-  T temp = a;
-  a = b;
-  b = temp;
-}
-
-/*
-template <class T>
-inline void swap (T & a, T & b)
-{
-  T temp = a;
-  a = b;
-  b = temp;
-}
-*/
-
 
 
 /**
@@ -187,12 +166,18 @@ public:
   friend ostream & operator<<(ostream  & s, const INDEX_2 & i2);
 };
 
-
+  /*
 inline INDEX_2 Sort (const INDEX_2 & i2)
 {
   INDEX_2 tmp = i2;
   tmp.Sort();
   return tmp;
+}
+  */
+inline INDEX_2 Sort (INDEX_2 i2)
+{
+  i2.Sort();
+  return i2;
 }
 
 inline bool operator< (const INDEX_2 ia, const INDEX_2 ib)

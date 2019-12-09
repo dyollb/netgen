@@ -1,6 +1,7 @@
 #ifndef NETGEN_CORE_PROFILER_HPP
 #define NETGEN_CORE_PROFILER_HPP
 
+#include <array>
 #include <chrono>
 #include <string>
 
@@ -21,7 +22,7 @@ namespace ngcore
         TimerVal() = default;
 
         double tottime = 0.0;
-        double starttime = 0.0;
+        TTimePoint starttime=0;
         double flops = 0.0;
         double loads = 0.0;
         double stores = 0.0;
@@ -35,8 +36,8 @@ namespace ngcore
     NGCORE_API static TTimePoint * thread_times;
     NGCORE_API static TTimePoint * thread_flops;
     NGCORE_API static std::shared_ptr<Logger> logger;
-    NGCORE_API static size_t dummy_thread_times[NgProfiler::SIZE];
-    NGCORE_API static size_t dummy_thread_flops[NgProfiler::SIZE];
+    NGCORE_API static std::array<size_t, NgProfiler::SIZE> dummy_thread_times;
+    NGCORE_API static std::array<size_t, NgProfiler::SIZE> dummy_thread_flops;
   private:
 
     NGCORE_API static std::string filename;
@@ -60,13 +61,13 @@ namespace ngcore
     /// start timer of index nr
     static void StartTimer (int nr)
     {
-      timers[nr].starttime = WallTime(); timers[nr].count++;
+      timers[nr].starttime = GetTimeCounter(); timers[nr].count++;
     }
 
     /// stop timer of index nr
     static void StopTimer (int nr)
     {
-      timers[nr].tottime += WallTime()-timers[nr].starttime;
+      timers[nr].tottime += (GetTimeCounter()-timers[nr].starttime)*seconds_per_tick;
     }
 
     static void StartThreadTimer (size_t nr, size_t tid)

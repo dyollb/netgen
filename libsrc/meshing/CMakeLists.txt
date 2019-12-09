@@ -23,8 +23,10 @@ endif(APPLE)
 
 target_link_libraries( mesh PUBLIC ngcore PRIVATE gprim la gen )
 
-target_link_libraries( mesh PUBLIC ${ZLIB_LIBRARIES} ${MPI_CXX_LIBRARIES} ${PYTHON_LIBRARIES} ${METIS_LIBRARY})
-install( TARGETS mesh ${NG_INSTALL_DIR})
+target_link_libraries( mesh PRIVATE netgen_metis netgen_python ${ZLIB_LIBRARIES} )
+if(NOT WIN32)
+  install( TARGETS mesh ${NG_INSTALL_DIR})
+endif(NOT WIN32)
 
 install(FILES
   adfront2.hpp adfront3.hpp basegeom.hpp bcfunctions.hpp bisect.hpp
@@ -35,5 +37,6 @@ install(FILES
   localh.hpp meshclass.hpp meshfunc.hpp meshing2.hpp meshing3.hpp
   meshing.hpp meshtool.hpp meshtype.hpp msghandler.hpp paralleltop.hpp
   ruler2.hpp ruler3.hpp specials.hpp topology.hpp validate.hpp
+  python_mesh.hpp
   DESTINATION ${NG_INSTALL_DIR_INCLUDE}/meshing COMPONENT netgen_devel
 )

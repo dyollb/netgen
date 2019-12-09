@@ -5,10 +5,13 @@
 #include <csg.hpp>
 #endif
 #include <opti.hpp>
+#include <core/array.hpp>
+#include <core/taskmanager.hpp>
 
 
 namespace netgen
 {
+  using namespace ngcore;
   
 
   double MinFunctionSum :: Func (const Vector & x) const
@@ -88,7 +91,7 @@ namespace netgen
   }
 
   PointFunction1 :: PointFunction1 (Mesh::T_POINTS & apoints, 
-				    const Array<INDEX_3> & afaces,
+				    const NgArray<INDEX_3> & afaces,
 				    const MeshingParameters & amp,
 				    double ah)
     : points(apoints), faces(afaces), mp(amp)
@@ -176,12 +179,12 @@ namespace netgen
   class CheapPointFunction1 : public MinFunction
   {
     Mesh::T_POINTS & points;
-    const Array<INDEX_3> & faces;
+    const NgArray<INDEX_3> & faces;
     DenseMatrix m;
     double h;
   public:
     CheapPointFunction1 (Mesh::T_POINTS & apoints, 
-			 const Array<INDEX_3> & afaces,
+			 const NgArray<INDEX_3> & afaces,
 			 double ah);
   
     virtual double Func (const Vector & x) const;
@@ -189,7 +192,7 @@ namespace netgen
   };
 
   CheapPointFunction1 :: CheapPointFunction1 (Mesh::T_POINTS & apoints, 
-					      const Array<INDEX_3> & afaces,
+					      const NgArray<INDEX_3> & afaces,
 					      double ah)
     : points(apoints), faces(afaces)
   {
@@ -300,20 +303,23 @@ namespace netgen
   {
   public:
     Mesh::T_POINTS & points;
-    const Mesh::T_VOLELEMENTS & elements;
-    TABLE<int,PointIndex::BASE> elementsonpoint;
+    const Array<Element> & elements;
+    TABLE<int,PointIndex::BASE> &elementsonpoint;
+    bool own_elementsonpoint;
     const MeshingParameters & mp;
     PointIndex actpind;
     double h;
   
   public:
     PointFunction (Mesh::T_POINTS & apoints, 
-		   const Mesh::T_VOLELEMENTS & aelements,
+		   const Array<Element> & aelements,
 		   const MeshingParameters & amp);
-    virtual ~PointFunction () { ; }
+    PointFunction (const PointFunction & pf);
+    virtual ~PointFunction () { if(own_elementsonpoint) delete &elementsonpoint; }
     virtual void SetPointIndex (PointIndex aactpind);
     void SetLocalH (double ah) { h = ah; }
     double GetLocalH () const { return h; }
+    const TABLE<int,PointIndex::BASE> & GetPointToElementTable() { return elementsonpoint; };
     virtual double PointFunctionValue (const Point<3> & pp) const;
     virtual double PointFunctionValueGrad (const Point<3> & pp, Vec<3> & grad) const;
     virtual double PointFunctionValueDeriv (const Point<3> & pp, const Vec<3> & dir, double & deriv) const;
@@ -322,11 +328,16 @@ namespace netgen
   };
 
 
+  PointFunction :: PointFunction (const PointFunction & pf)
+    : points(pf.points), elements(pf.elements), elementsonpoint(pf.elementsonpoint), own_elementsonpoint(false), mp(pf.mp)
+  { }
+
   PointFunction :: PointFunction (Mesh::T_POINTS & apoints, 
-				  const Mesh::T_VOLELEMENTS & aelements,
+				  const Array<Element> & aelements,
 				  const MeshingParameters & amp)
-    : points(apoints), elements(aelements), elementsonpoint(apoints.Size()), mp(amp)
+    : points(apoints), elements(aelements), elementsonpoint(* new TABLE<int,PointIndex::BASE>(apoints.Size())), own_elementsonpoint(true), mp(amp)
   {
+    static Timer tim("PointFunction - build elementsonpoint table"); RegionTimer reg(tim);
     for (int i = 0; i < elements.Size(); i++)
       if (elements[i].NP() == 4)
         for (int j = 0; j < elements[i].NP(); j++)
@@ -422,7 +433,7 @@ namespace netgen
   int PointFunction :: MovePointToInner ()
   {
     // try point movement 
-    Array<Element2d> faces;
+    NgArray<Element2d> faces;
   
     for (int j = 0; j < elementsonpoint[actpind].Size(); j++)
       {
@@ -477,7 +488,7 @@ namespace netgen
     DenseMatrix m;
   public:
     CheapPointFunction (Mesh::T_POINTS & apoints, 
-			const Mesh::T_VOLELEMENTS & aelements,
+			const Array<Element> & aelements,
 			const MeshingParameters & amp);
     virtual void SetPointIndex (PointIndex aactpind);
     virtual double PointFunctionValue (const Point<3> & pp) const;
@@ -486,7 +497,7 @@ namespace netgen
 
 
   CheapPointFunction :: CheapPointFunction (Mesh::T_POINTS & apoints, 
-					    const Mesh::T_VOLELEMENTS & aelements,
+					    const Array<Element> & aelements,
 					    const MeshingParameters & amp)
     : PointFunction (apoints, aelements, amp)
   {
@@ -919,35 +930,6 @@ double Opti3EdgeMinFunction :: FuncGrad (const Vector & x, Vector & grad) const
 
 
 
-double CalcTotalBad (const Mesh::T_POINTS & points, 
-		     const Mesh::T_VOLELEMENTS & elements,
-		     const MeshingParameters & mp)
-{
-  static Timer t("CalcTotalBad"); RegionTimer reg(t);
-  
-  double sum = 0;
-  double elbad;
-  
-  tets_in_qualclass.SetSize(20);
-  tets_in_qualclass = 0;
-
-  double teterrpow = mp.opterrpow;
-
-  for (int i = 1; i <= elements.Size(); i++)
-    {
-      elbad = pow (max2(CalcBad (points, elements.Get(i), 0, mp),1e-10),
-		   1/teterrpow);
-
-      int qualclass = int (20 / elbad + 1);
-      if (qualclass < 1) qualclass = 1;
-      if (qualclass > 20) qualclass = 20;
-      tets_in_qualclass.Elem(qualclass)++;
-
-      sum += elbad;
-    }
-  return sum;
-}
-
 int WrongOrientation (const Mesh::T_POINTS & points, const Element & el)
 {
   const Point3d & p1 = points[el.PNum(1)];
@@ -985,13 +967,13 @@ int WrongOrientation (const Mesh::T_POINTS & points, const Element & el)
 // {
 // public:
 //   Mesh::T_POINTS & points;
-//   const Mesh::T_VOLELEMENTS & elements;
+//   const NgArray<Element> & elements;
 //   TABLE<INDEX> elementsonpoint;
 //   PointIndex actpind;
   
 // public:
 //   JacobianPointFunction (Mesh::T_POINTS & apoints, 
-// 			 const Mesh::T_VOLELEMENTS & aelements);
+// 			 const NgArray<Element> & aelements);
   
 //   virtual void SetPointIndex (PointIndex aactpind);
 //   virtual double Func (const Vector & x) const;
@@ -1002,17 +984,12 @@ int WrongOrientation (const Mesh::T_POINTS & points, const Element & el)
 
 JacobianPointFunction :: 
 JacobianPointFunction (Mesh::T_POINTS & apoints, 
-		       const Mesh::T_VOLELEMENTS & aelements)
+		       const Array<Element> & aelements)
   : points(apoints), elements(aelements), elementsonpoint(apoints.Size())
 {
-  INDEX i;
-  int j;
-  
-  for (i = 1; i <= elements.Size(); i++)
-    {
-      for (j = 1; j <= elements.Get(i).NP(); j++)
-	elementsonpoint.Add1 (elements.Get(i).PNum(j), i);  
-    }
+  for (int i = 0; i < elements.Size(); i++)
+      for (int j = 1; j <= elements[i].NP(); j++)
+          elementsonpoint.Add1 (elements[i].PNum(j), i+1);
 
   onplane = false;
 }
@@ -1028,21 +1005,21 @@ double JacobianPointFunction :: Func (const Vector & v) const
   int j;
   double badness = 0;
 
-  Point<3> hp = points.Elem(actpind);
+  Point<3> hp = points[actpind];
 
-  points.Elem(actpind) = hp + Vec<3> (v(0), v(1), v(2));
+  points[actpind] = hp + Vec<3> (v(0), v(1), v(2));
 
   if(onplane)
-    points.Elem(actpind) -= (v(0)*nv(0)+v(1)*nv(1)+v(2)*nv(2)) * nv;
+    points[actpind] -= (v(0)*nv(0)+v(1)*nv(1)+v(2)*nv(2)) * nv;
 
 
   for (j = 1; j <= elementsonpoint.EntrySize(actpind); j++)
     {
       int eli = elementsonpoint.Get(actpind, j);
-      badness += elements.Get(eli).CalcJacobianBadness (points);
+      badness += elements[eli-1].CalcJacobianBadness (points);
     }
   
-  points.Elem(actpind) = hp; 
+  points[actpind] = hp; 
 
   return badness;
 }
@@ -1058,11 +1035,11 @@ FuncGrad (const Vector & x, Vector & g) const
   int lpi;
   double badness = 0;//, hbad;
 
-  Point<3> hp = points.Elem(actpind);
-  points.Elem(actpind) = hp + Vec<3> (x(0), x(1), x(2));
+  Point<3> hp = points[actpind];
+  points[actpind] = hp + Vec<3> (x(0), x(1), x(2));
 
   if(onplane)
-    points.Elem(actpind) -= (x(0)*nv(0)+x(1)*nv(1)+x(2)*nv(2)) * nv;
+    points[actpind] -= (x(0)*nv(0)+x(1)*nv(1)+x(2)*nv(2)) * nv;
 
   Vec<3> hderiv;
   //Vec3d vdir;
@@ -1072,7 +1049,7 @@ FuncGrad (const Vector & x, Vector & g) const
   for (j = 1; j <= elementsonpoint.EntrySize(actpind); j++)
     {
       int eli = elementsonpoint.Get(actpind, j);
-      const Element & el = elements.Get(eli);
+      const Element & el = elements[eli-1];
 
       lpi = 0;
       for (k = 1; k <= el.GetNP(); k++)
@@ -1080,7 +1057,7 @@ FuncGrad (const Vector & x, Vector & g) const
 	  lpi = k;
       if (!lpi) cerr << "loc point not found" << endl;
 
-      badness += elements.Get(eli).
+      badness += elements[eli-1].
 	CalcJacobianBadnessGradient (points, lpi, hderiv);
 
       for(k=0; k<3; k++)
@@ -1113,7 +1090,7 @@ FuncGrad (const Vector & x, Vector & g) const
   //(*testout) << "g = " << g << endl;
 
   
-  points.Elem(actpind) = hp; 
+  points[actpind] = hp; 
 
   return badness;
 }
@@ -1126,11 +1103,11 @@ FuncDeriv (const Vector & x, const Vector & dir, double & deriv) const
   int lpi;
   double badness = 0;
 
-  Point<3> hp = points.Elem(actpind);
-  points.Elem(actpind) = Point<3> (hp + Vec3d (x(0), x(1), x(2)));
+  Point<3> hp = points[actpind];
+  points[actpind] = Point<3> (hp + Vec3d (x(0), x(1), x(2)));
 
   if(onplane)
-    points.Elem(actpind) -= (Vec3d (x(0), x(1), x(2))*nv) * nv;
+    points[actpind] -= (Vec3d (x(0), x(1), x(2))*nv) * nv;
 
   double hderiv;
   deriv = 0;
@@ -1145,7 +1122,7 @@ FuncDeriv (const Vector & x, const Vector & dir, double & deriv) const
   for (j = 1; j <= elementsonpoint.EntrySize(actpind); j++)
     {
       int eli = elementsonpoint.Get(actpind, j);
-      const Element & el = elements.Get(eli);
+      const Element & el = elements[eli-1];
 
       lpi = 0;
       for (k = 1; k <= el.GetNP(); k++)
@@ -1153,12 +1130,12 @@ FuncDeriv (const Vector & x, const Vector & dir, double & deriv) const
 	  lpi = k;
       if (!lpi) cerr << "loc point not found" << endl;
 
-      badness += elements.Get(eli).
+      badness += elements[eli-1].
 	CalcJacobianBadnessDirDeriv (points, lpi, vdir, hderiv);
       deriv += hderiv;
     }
   
-  points.Elem(actpind) = hp; 
+  points[actpind] = hp; 
 
   return badness;
   
@@ -1187,7 +1164,7 @@ void Mesh :: ImproveMesh (const CSG eometry & geometry, OPTIMIZEGOAL goal)
     }
 
   const char * savetask = multithread.task;
-  multithread.task = "Smooth Mesh";
+  multithread.task = "Optimize Volume: Smooth Mesh";
 
 
   TABLE<INDEX> surfelementsonpoint(points.Size());
@@ -1353,11 +1330,9 @@ void Mesh :: ImproveMesh (const CSG eometry & geometry, OPTIMIZEGOAL goal)
 
 
   
-void Mesh :: ImproveMesh (const MeshingParameters & mp, OPTIMIZEGOAL goal)
+void Mesh :: ImproveMeshSequential (const MeshingParameters & mp, OPTIMIZEGOAL goal)
 {
   static Timer t("Mesh::ImproveMesh"); RegionTimer reg(t);
-  
-  int typ = 1;
   
   (*testout) << "Improve Mesh" << "\n";
   PrintMessage (3, "ImproveMesh");
@@ -1366,36 +1341,9 @@ void Mesh :: ImproveMesh (const MeshingParameters & mp, OPTIMIZEGOAL goal)
   int ne = GetNE();
 
 
-  Array<double,PointIndex::BASE> perrs(np);
-  perrs = 1.0;
-
-  double bad1 = 0;
-  double badmax = 0;
-
   if (goal == OPT_QUALITY)
     {
-      for (int i = 1; i <= ne; i++)
-	{
-	  const Element & el = VolumeElement(i);
-	  if (el.GetType() != TET)
-	    continue;
-	  
-	  double hbad = CalcBad (points, el, 0, mp);
-	  for (int j = 0; j < 4; j++)
-	    perrs[el[j]] += hbad;
-	  
-	  bad1 += hbad;
-	}
-      
-      for (int i = perrs.Begin(); i < perrs.End(); i++)
-	if (perrs[i] > badmax) 
-	  badmax = perrs[i];
-      badmax = 0;
-    }
-
-  if (goal == OPT_QUALITY)
-    {
-      bad1 = CalcTotalBad (points, volelements, mp);
+      double bad1 = CalcTotalBad (mp);
       (*testout) << "Total badness = " << bad1 << endl;
       PrintMessage (5, "Total badness = ", bad1);
     }
@@ -1407,22 +1355,15 @@ void Mesh :: ImproveMesh (const MeshingParameters & mp, OPTIMIZEGOAL goal)
   //int uselocalh = mparam.uselocalh;
 
 
-  PointFunction * pf;
-
-  if (typ == 1)
-    pf = new PointFunction(points, volelements, mp);
-  else
-    pf = new CheapPointFunction(points, volelements, mp);
-
-  //  pf->SetLocalH (h);
+  PointFunction pf(points, volelements, mp);
   
-  Opti3FreeMinFunction freeminf(*pf);
+  Opti3FreeMinFunction freeminf(pf);
 
   OptiParameters par;
   par.maxit_linsearch = 20;
   par.maxit_bfgs = 20;
 
-  Array<double, PointIndex::BASE> pointh (points.Size());
+  NgArray<double, PointIndex::BASE> pointh (points.Size());
 
   if(lochfunc)
     {
@@ -1457,10 +1398,10 @@ void Mesh :: ImproveMesh (const MeshingParameters & mp, OPTIMIZEGOAL goal)
 
 
   const char * savetask = multithread.task;
-  multithread.task = "Smooth Mesh";
+  multithread.task = "Optimize Volume: Smooth Mesh";
 
   for (PointIndex pi : points.Range())
-    if ( (*this)[pi].Type() == INNERPOINT && perrs[pi] > 0.01 * badmax)
+    if ( (*this)[pi].Type() == INNERPOINT )
       {
 	if (multithread.terminate)
 	  throw NgException ("Meshing stopped");
@@ -1470,11 +1411,11 @@ void Mesh :: ImproveMesh (const MeshingParameters & mp, OPTIMIZEGOAL goal)
         if (  (pi+1-PointIndex::BASE) % printmod == 0) PrintDot (printdot);
 
 	double lh = pointh[pi];
-	pf->SetLocalH (lh);
+	pf.SetLocalH (lh);
 	par.typx = lh;
 
 	freeminf.SetPoint (points[pi]);
-	pf->SetPointIndex (pi);
+	pf.SetPointIndex (pi);
 
 	x = 0;
 	int pok;
@@ -1482,10 +1423,10 @@ void Mesh :: ImproveMesh (const MeshingParameters & mp, OPTIMIZEGOAL goal)
 
 	if (!pok)
 	  {
-	    pok = pf->MovePointToInner ();
+	    pok = pf.MovePointToInner ();
 
 	    freeminf.SetPoint (points[pi]);
-	    pf->SetPointIndex (pi);
+	    pf.SetPointIndex (pi);
 	  }
 
 	if (pok)
@@ -1500,13 +1441,157 @@ void Mesh :: ImproveMesh (const MeshingParameters & mp, OPTIMIZEGOAL goal)
       }
   PrintDot ('\n');
   
-  delete pf;
+  multithread.task = savetask;
+
+  if (goal == OPT_QUALITY)
+    {
+      double bad1 = CalcTotalBad (mp);
+      (*testout) << "Total badness = " << bad1 << endl;
+      PrintMessage (5, "Total badness = ", bad1);
+    }
+}
+
+void Mesh :: ImproveMesh (const MeshingParameters & mp, OPTIMIZEGOAL goal)
+{
+  static Timer t("Mesh::ImproveMesh"); RegionTimer reg(t);
+  static Timer tcoloring("coloring");
+  static Timer tcalcbadmax("Calc badmax");
+  static Timer topt("optimize");
+  static Timer trange("range");
+
+  // return ImproveMeshSequential(mp, goal);
+
+  (*testout) << "Improve Mesh" << "\n";
+  PrintMessage (3, "ImproveMesh");
+
+  int np = GetNP();
+  int ne = GetNE();
+
+  PointFunction pf_glob(points, volelements, mp);
+
+  auto & elementsonpoint = pf_glob.GetPointToElementTable();
+
+  const auto & getDofs = [&] (int i)
+  {
+      i += PointIndex::BASE;
+      return FlatArray<int>(elementsonpoint[i].Size(), &elementsonpoint[i][0]);
+  };
+
+  Array<int> colors(points.Size());
+
+  tcoloring.Start();
+  int ncolors = ngcore::ComputeColoring( colors, ne, getDofs );
+  TableCreator<int> creator(ncolors);
+  for ( ; !creator.Done(); creator++)
+  {
+      ParallelForRange( Range(colors), [&](auto myrange)
+          {
+            for(auto i : myrange)
+              creator.Add(colors[i], i);
+          });
+  }
+
+  auto color_table = creator.MoveTable();
+  tcoloring.Stop();
+
+  if (goal == OPT_QUALITY)
+    {
+      double bad1 = CalcTotalBad (mp);
+      (*testout) << "Total badness = " << bad1 << endl;
+      PrintMessage (5, "Total badness = ", bad1);
+    }
+
+
+  (*testout) << setprecision(8);
+
+  NgArray<double, PointIndex::BASE> pointh (points.Size());
+
+  if(lochfunc)
+    {
+      for (PointIndex pi : points.Range())
+	pointh[pi] = GetH(points[pi]);
+    }
+  else
+    {
+      pointh = 0;
+      for (Element & el : VolumeElements())
+	{
+	  double h = pow(el.Volume(points),1./3.);
+          for (PointIndex pi : el.PNums())
+	    if (h > pointh[pi])
+              pointh[pi] = h;
+	}
+    }
+
+  const char * savetask = multithread.task;
+  multithread.task = "Optimize Volume: Smooth Mesh";
+
+  topt.Start();
+  int counter = 0;
+  for (int color : Range(color_table.Size()))
+  {
+      if (multithread.terminate)
+          throw NgException ("Meshing stopped");
+
+      ParallelForRange( Range(color_table[color].Size()), [&](auto myrange)
+      {
+        RegionTracer reg(ngcore::TaskManager::GetThreadId(), trange, myrange.Size());
+        Vector x(3);
+
+        PointFunction pf{pf_glob};
+
+        Opti3FreeMinFunction freeminf(pf);
+
+        OptiParameters par;
+        par.maxit_linsearch = 20;
+        par.maxit_bfgs = 20;
+
+        for (auto i : myrange)
+        {
+          PointIndex pi(color_table[color][i]+PointIndex::BASE);
+          if ( (*this)[pi].Type() == INNERPOINT )
+          {
+            counter++;
+
+            double lh = pointh[pi];
+            pf.SetLocalH (lh);
+            par.typx = lh;
+
+            freeminf.SetPoint (points[pi]);
+            pf.SetPointIndex (pi);
+
+            x = 0;
+            int pok;
+            pok = freeminf.Func (x) < 1e10;
+
+            if (!pok)
+              {
+                pok = pf.MovePointToInner ();
+
+                freeminf.SetPoint (points[pi]);
+                pf.SetPointIndex (pi);
+              }
+
+            if (pok)
+              {
+                //*testout << "start BFGS, pok" << endl;
+                BFGS (x, freeminf, par);
+                //*testout << "BFGS complete, pok" << endl;
+                points[pi](0) += x(0);
+                points[pi](1) += x(1);
+                points[pi](2) += x(2);
+              }
+          }
+        }
+      }, 4*ngcore::TaskManager::GetNumThreads());
+  }
+  topt.Stop();
 
   multithread.task = savetask;
 
   if (goal == OPT_QUALITY)
     {
-      bad1 = CalcTotalBad (points, volelements, mp);
+      double bad1 = CalcTotalBad (mp);
       (*testout) << "Total badness = " << bad1 << endl;
       PrintMessage (5, "Total badness = ", bad1);
     }
@@ -1514,12 +1599,11 @@ void Mesh :: ImproveMesh (const MeshingParameters & mp, OPTIMIZEGOAL goal)
 
 
 
-
 // Improve Condition number of Jacobian, any elements  
 void Mesh :: ImproveMeshJacobian (const MeshingParameters & mp,
-				  OPTIMIZEGOAL goal, const BitArray * usepoint)
+				  OPTIMIZEGOAL goal, const NgBitArray * usepoint)
 {
-  int i, j;
+  // int i, j;
   
   (*testout) << "Improve Mesh Jacobian" << "\n";
   PrintMessage (3, "ImproveMesh Jacobian");
@@ -1539,33 +1623,34 @@ void Mesh :: ImproveMeshJacobian (const MeshingParameters & mp,
   par.maxit_linsearch = 20;
   par.maxit_bfgs = 20;
   
-  BitArray badnodes(np);
+  NgBitArray badnodes(np);
   badnodes.Clear();
 
-  for (i = 1; i <= ne; i++)
+  for (int i = 1; i <= ne; i++)
     {
       const Element & el = VolumeElement(i);
       double bad = el.CalcJacobianBadness (Points());
       if (bad > 1)
-	for (j = 1; j <= el.GetNP(); j++)
+	for (int j = 1; j <= el.GetNP(); j++)
 	  badnodes.Set (el.PNum(j));
     }
 
-  Array<double, PointIndex::BASE> pointh (points.Size());
+  NgArray<double, PointIndex::BASE, PointIndex> pointh (points.Size());
 
   if(lochfunc)
     {
-      for(i = 1; i<=points.Size(); i++)
-	pointh[i] = GetH(points.Get(i));
+      // for(i = 1; i<=points.Size(); i++)
+      for (PointIndex pi : points.Range())
+	pointh[pi] = GetH(points[pi]);
     }
   else
     {
       pointh = 0;
-      for(i=0; i<GetNE(); i++)
+      for (int i=0; i<GetNE(); i++)
 	{
 	  const Element & el = VolumeElement(i+1);
 	  double h = pow(el.Volume(points),1./3.);
-	  for(j=1; j<=el.GetNV(); j++)
+	  for(int j=1; j<=el.GetNV(); j++)
 	    if(h > pointh[el.PNum(j)])
 	      pointh[el.PNum(j)] = h;
 	}
@@ -1574,19 +1659,20 @@ void Mesh :: ImproveMeshJacobian (const MeshingParameters & mp,
 
 
   const char * savetask = multithread.task;
-  multithread.task = "Smooth Mesh Jacobian";
+  multithread.task = "Optimize Volume: Smooth Mesh Jacobian";
   
-  for (PointIndex pi = points.Begin(); i < points.End(); pi++)
+  // for (PointIndex pi = points.Begin(); i < points.End(); pi++)
+  for (PointIndex pi : points.Range())
     {
       if ((*this)[pi].Type() != INNERPOINT)
 	continue;
 
-      if(usepoint && !usepoint->Test(i))
+      if(usepoint && !usepoint->Test(pi))
 	continue;
 
       //(*testout) << "improvejac, p = " << i << endl;
 
-      if (goal == OPT_WORSTCASE && !badnodes.Test(i))
+      if (goal == OPT_WORSTCASE && !badnodes.Test(pi))
 	continue;
       //	(*testout) << "smooth p " << i << endl;
 
@@ -1597,15 +1683,15 @@ void Mesh :: ImproveMeshJacobian (const MeshingParameters & mp,
       if (multithread.terminate)
 	throw NgException ("Meshing stopped");
 
-      multithread.percent = 100.0 * i / points.Size();
+      multithread.percent = 100.0 * pi / points.Size();
 
       if (points.Size() < 1000)
 	PrintDot ();
       else
-	if (i % 10 == 0)
+	if (pi % 10 == 0)
 	  PrintDot ('+');
 
-      double lh = pointh[i];
+      double lh = pointh[pi];
       par.typx = lh;
 
       pf.SetPointIndex (pi);
@@ -1618,9 +1704,9 @@ void Mesh :: ImproveMeshJacobian (const MeshingParameters & mp,
           //*testout << "start BFGS, Jacobian" << endl;
 	  BFGS (x, pf, par);
           //*testout << "end BFGS, Jacobian" << endl;
-	  points.Elem(i)(0) += x(0);
-	  points.Elem(i)(1) += x(1);
-	  points.Elem(i)(2) += x(2);
+	  points[pi](0) += x(0);
+	  points[pi](1) += x(1);
+	  points[pi](2) += x(2);
 	}
       else
 	{
@@ -1638,12 +1724,12 @@ void Mesh :: ImproveMeshJacobian (const MeshingParameters & mp,
 
 // Improve Condition number of Jacobian, any elements  
 void Mesh :: ImproveMeshJacobianOnSurface (const MeshingParameters & mp,
-					   const BitArray & usepoint, 
-					   const Array< Vec<3>* > & nv,
+					   const NgBitArray & usepoint, 
+					   const NgArray< Vec<3>* > & nv,
 					   OPTIMIZEGOAL goal,
-					   const Array< Array<int,PointIndex::BASE>* > * idmaps)
+					   const NgArray< NgArray<int,PointIndex::BASE>* > * idmaps)
 {
-  int i, j;
+  // int i, j;
   
   (*testout) << "Improve Mesh Jacobian" << "\n";
   PrintMessage (3, "ImproveMesh Jacobian");
@@ -1658,8 +1744,8 @@ void Mesh :: ImproveMeshJacobianOnSurface (const MeshingParameters & mp,
   
   JacobianPointFunction pf(points, volelements);
 
-  Array< Array<int,PointIndex::BASE>* > locidmaps;
-  const Array< Array<int,PointIndex::BASE>* > * used_idmaps;
+  NgArray< NgArray<int,PointIndex::BASE>* > locidmaps;
+  const NgArray< NgArray<int,PointIndex::BASE>* > * used_idmaps;
 
   if(idmaps)
     used_idmaps = idmaps;
@@ -1667,11 +1753,11 @@ void Mesh :: ImproveMeshJacobianOnSurface (const MeshingParameters & mp,
     {
       used_idmaps = &locidmaps;
       
-      for(i=1; i<=GetIdentifications().GetMaxNr(); i++)
+      for(int i=1; i<=GetIdentifications().GetMaxNr(); i++)
 	{
 	  if(GetIdentifications().GetType(i) == Identifications::PERIODIC)
 	    {
-	      locidmaps.Append(new Array<int,PointIndex::BASE>);
+	      locidmaps.Append(new NgArray<int,PointIndex::BASE>);
 	      GetIdentifications().GetMap(i,*locidmaps.Last(),true);
 	    }
 	}
@@ -1694,33 +1780,34 @@ void Mesh :: ImproveMeshJacobianOnSurface (const MeshingParameters & mp,
   par.maxit_linsearch = 20;
   par.maxit_bfgs = 20;
   
-  BitArray badnodes(np);
+  NgBitArray badnodes(np);
   badnodes.Clear();
 
-  for (i = 1; i <= ne; i++)
+  for (int i = 1; i <= ne; i++)
     {
       const Element & el = VolumeElement(i);
       double bad = el.CalcJacobianBadness (Points());
       if (bad > 1)
-	for (j = 1; j <= el.GetNP(); j++)
+	for (int j = 1; j <= el.GetNP(); j++)
 	  badnodes.Set (el.PNum(j));
     }
 
-  Array<double, PointIndex::BASE> pointh (points.Size());
+  NgArray<double, PointIndex::BASE> pointh (points.Size());
  
   if(lochfunc)
     {
-      for(i=1; i<=points.Size(); i++)
-	pointh[i] = GetH(points.Get(i));
+      // for(i=1; i<=points.Size(); i++)
+      for (PointIndex pi : points.Range())
+	pointh[pi] = GetH(points[pi]);
     }
   else
     {
       pointh = 0;
-      for(i=0; i<GetNE(); i++)
+      for(int i=0; i<GetNE(); i++)
 	{
 	  const Element & el = VolumeElement(i+1);
 	  double h = pow(el.Volume(points),1./3.);
-	  for(j=1; j<=el.GetNV(); j++)
+	  for(int j=1; j<=el.GetNV(); j++)
 	    if(h > pointh[el.PNum(j)])
 	      pointh[el.PNum(j)] = h;
 	}
@@ -1728,14 +1815,15 @@ void Mesh :: ImproveMeshJacobianOnSurface (const MeshingParameters & mp,
 
 
   const char * savetask = multithread.task;
-  multithread.task = "Smooth Mesh Jacobian";
+  multithread.task = "Optimize Volume: Smooth Mesh Jacobian";
   
-  for (PointIndex pi = points.Begin(); pi <= points.End(); pi++)
-    if ( usepoint.Test(i) )
+  // for (PointIndex pi = points.Begin(); pi <= points.End(); pi++)
+  for (PointIndex pi : points.Range())
+    if ( usepoint.Test(pi) )
       {
 	//(*testout) << "improvejac, p = " << i << endl;
 
-	if (goal == OPT_WORSTCASE && !badnodes.Test(i))
+	if (goal == OPT_WORSTCASE && !badnodes.Test(pi))
 	  continue;
 	//	(*testout) << "smooth p " << i << endl;
 
@@ -1746,15 +1834,15 @@ void Mesh :: ImproveMeshJacobianOnSurface (const MeshingParameters & mp,
 	if (multithread.terminate)
 	  throw NgException ("Meshing stopped");
 
-	multithread.percent = 100.0 * i / points.Size();
+	multithread.percent = 100.0 * pi / points.Size();
 
 	if (points.Size() < 1000)
 	  PrintDot ();
 	else
-	  if (i % 10 == 0)
+	  if (pi % 10 == 0)
 	    PrintDot ('+');
 
-	double lh = pointh[i];//GetH(points.Get(i));
+	double lh = pointh[pi];//GetH(points.Get(i));
 	par.typx = lh;
 
 	pf.SetPointIndex (pi);
@@ -1762,29 +1850,29 @@ void Mesh :: ImproveMeshJacobianOnSurface (const MeshingParameters & mp,
 	PointIndex brother (-1);
 	if(usesum)
 	  {
-	    for(j=0; brother == -1 && j<used_idmaps->Size(); j++)
+	    for(int j=0; brother == -1 && j<used_idmaps->Size(); j++)
 	      {
-		if(i < (*used_idmaps)[j]->Size() + PointIndex::BASE)
+		if(pi < (*used_idmaps)[j]->Size() + PointIndex::BASE)
 		  {
-		    brother = (*(*used_idmaps)[j])[i];
-		    if(brother == i || brother == 0)
+		    brother = (*(*used_idmaps)[j])[pi];
+		    if(brother == pi || brother == 0)
 		      brother = -1;
 		  }
 	      }
-	    if(brother >= i)
+	    if(brother >= pi)
 	      {
 		pf2ptr->SetPointIndex(brother);
 		pf2ptr->SetNV(*nv[brother-1]);
 	      }
 	  }
 
-	if(usesum && brother < i)
+	if(usesum && brother < pi)
 	  continue;
 
 	//pf.UnSetNV(); x = 0;
 	//(*testout) << "before " << pf.Func(x);
 
-	pf.SetNV(*nv[i-1]);
+	pf.SetNV(*nv[pi-1]);
 
 	x = 0;
 	int pok = (brother == -1) ? (pf.Func (x) < 1e10) : (pf_sum.Func (x) < 1e10);
@@ -1798,12 +1886,12 @@ void Mesh :: ImproveMeshJacobianOnSurface (const MeshingParameters & mp,
 	      BFGS (x, pf_sum, par);
 
 
-	    for(j=0; j<3; j++)
-	      points.Elem(i)(j) += x(j);// - scal*nv[i-1].X(j);
+	    for(int j=0; j<3; j++)
+	      points[pi](j) += x(j);// - scal*nv[i-1].X(j);
 
 	    if(brother != -1)
-	      for(j=0; j<3; j++)
-		points.Elem(brother)(j) += x(j);// - scal*nv[brother-1].X(j);
+	      for(int j=0; j<3; j++)
+		points[brother](j) += x(j);// - scal*nv[brother-1].X(j);
 
 
 	  }
@@ -1821,7 +1909,7 @@ void Mesh :: ImproveMeshJacobianOnSurface (const MeshingParameters & mp,
   PrintDot ('\n');
 
   delete pf2ptr;
-  for(i=0; i<locidmaps.Size(); i++)
+  for(int i=0; i<locidmaps.Size(); i++)
     delete locidmaps[i];
 
   multithread.task = savetask;

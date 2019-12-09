@@ -98,7 +98,7 @@ namespace ngcore
           // return time in milliseconds as double
         // return std::chrono::duration<double>(t-start_time).count()*1000.0;
         // return std::chrono::duration<double>(t-start_time).count() / 2.7e3;
-        return (t-start_time) / 2.7e6;
+        return 1000.0*static_cast<double>(t-start_time) * seconds_per_tick;
       }
 
       enum PType
@@ -241,7 +241,9 @@ namespace ngcore
             }
 
           int alias = ++alias_counter;
-          double r,g,b;
+          double r;
+          double g;
+          double b;
           Hue2RGB( hue, r, g, b );
           fprintf( ctrace_stream, "%d\ta%d\ta%d\t\"%s\"\t\"%.15g %.15g %.15g\"\n", PajeDefineEntityValue, alias, type, name.c_str(), r,g,b ); // NOLINT
           return alias;
@@ -346,7 +348,7 @@ namespace ngcore
 
   void PajeTrace::Write( const std::string & filename )
     {
-      int n_events = jobs.size() + timer_events.size();
+      auto n_events = jobs.size() + timer_events.size();
       for(auto & vtasks : tasks)
         n_events += vtasks.size();
 
@@ -393,7 +395,7 @@ namespace ngcore
       if(trace_threads)
         for (int i=0; i<nthreads; i++)
           {
-            auto name = "Timer level " + ToString(i);
+            auto name = "Thread " + ToString(i);
             thread_aliases.emplace_back( paje.CreateContainer( container_type_thread, container_nodes[i*num_nodes/nthreads], name ) );
           }
 
@@ -550,8 +552,152 @@ namespace ngcore
                 }
             }
         }
+      WriteSunburstHTML();
       paje.WriteEvents();
     }
+
+  ///////////////////////////////////////////////////////////////////
+  // Write HTML file drawing a sunburst chart with cumulated timings
+  struct TreeNode
+  {
+      int id = 0;
+      std::map<int, TreeNode> children;
+      double time = 0.0;
+      std::string name;
+      TTimePoint start_time = 0;
+  };
+
+  void PrintNode (const TreeNode &n, int &level, std::ofstream & f);
+  void PrintNode (const TreeNode &n, int &level, std::ofstream & f)
+  {
+      f << "{ name: \"" + n.name + "\", size: " + ToString(n.time);
+      int size = n.children.size();
+      if(size>0)
+      {
+          int i = 0;
+          f << ", children: [";
+          for(auto & c : n.children)
+          {
+              PrintNode(c.second, level, f);
+              if(++i<size)
+                  f << " , ";
+          }
+          f << ']';
+      }
+      f << '}';
+  }
+
+  void PajeTrace::WriteSunburstHTML( )
+  {
+      std::vector<TimerEvent> events;
+
+      TreeNode root;
+      root.time=0;
+      root.name="all";
+      TreeNode *current = &root;
+
+      std::vector<TreeNode*> node_stack;
+
+      node_stack.push_back(&root);
+
+      TTimePoint stop_time = 0;
+
+      for(auto & event : timer_events)
+      {
+          events.push_back(event);
+          stop_time = std::max(event.time, stop_time);
+      }
+
+      std::map<std::string, int> jobs_map;
+      std::vector<std::string> job_names;
+      for(auto & job : jobs)
+      {
+          auto name = Demangle(job.type->name());
+          int id = job_names.size();
+          if(jobs_map.count(name)==0)
+          {
+              jobs_map[name] = id;
+              job_names.push_back(name);
+          }
+          else
+              id = jobs_map[name];
+
+          events.push_back(TimerEvent{-1, job.start_time, true, id});
+          events.push_back(TimerEvent{-1, job.stop_time, false, id});
+          stop_time = std::max(job.stop_time, stop_time);
+      }
+
+      std::sort (events.begin(), events.end());
+
+      root.time = 1000.0*static_cast<double>(stop_time-start_time) * seconds_per_tick;
+
+      for(auto & event : events)
+      {
+          bool is_timer_event = event.timer_id != -1;
+          int id = is_timer_event ? event.timer_id : event.thread_id;
+
+          if(event.is_start)
+          {
+              bool need_init = !current->children.count(id);
+
+              node_stack.push_back(current);
+              current = &current->children[id];
+
+              if(need_init)
+              {
+                  current->name = is_timer_event ? NgProfiler::GetName(id) : job_names[id];
+                  current->time = 0.0;
+                  current->id = id;
+              }
+
+              current->start_time = event.time;
+          }
+          else
+          {
+              if(node_stack.size()==0) {
+                std::cout << "node stack empty!" << std::endl;
+                break;
+              }
+              double time = 1000.0*static_cast<double>(event.time-current->start_time) * seconds_per_tick;
+              current->time += time;
+              current = node_stack.back();
+              current->time -= time;
+              node_stack.pop_back();
+          }
+      }
+
+      int level = 0;
+      std::ofstream f(tracefile_name+".html");
+      f.precision(4);
+      f << R"CODE_(
+<head>
+  <script src="https://d3js.org/d3.v5.min.js"></script>
+  <script src="https://unpkg.com/sunburst-chart"></script>
+
+  <style>body { margin: 0 }</style>
+</head>
+<body>
+  <div id="chart"></div>
+
+  <script>
+    const data = 
+)CODE_";
+      PrintNode(root, level, f);
+      f << R"CODE_( ;
+
+    const color = d3.scaleOrdinal(d3.schemePaired);
+
+    Sunburst()
+      .data(data)
+      .size('size')
+      .color(d => color(d.name))
+      .tooltipContent((d, node) => `Time: <i>${node.value.toPrecision(6)}ms</i>`)
+      (document.getElementById('chart'));
+  </script>
+</body>
+)CODE_" << std::endl;
+  }
+
 } // namespace ngcore
 
 const char *header =

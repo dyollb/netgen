@@ -6,7 +6,7 @@ namespace netgen
 
   
   template <class T>
-  void QuickSortRec (FlatArray<T> data,
+  void QuickSortRec (NgFlatArray<T> data,
 		     int left, int right)
   {
     int i = left;
@@ -30,7 +30,7 @@ namespace netgen
   }
 
   template <class T>
-  void QuickSort (FlatArray<T> data)
+  void QuickSort (NgFlatArray<T> data)
   {
     if (data.Size() > 1)
       QuickSortRec (data, 0, data.Size()-1);
@@ -50,6 +50,9 @@ namespace netgen
   }
 
   MeshTopology :: ~MeshTopology () { ;  }
+
+  bool MeshTopology :: NeedsUpdate() const
+  { return (timestamp <= mesh->GetTimeStamp()); }
 
   template <typename FUNC>
   void LoopOverEdges (const Mesh & mesh, MeshTopology & top, PointIndex v,
@@ -216,7 +219,7 @@ namespace netgen
     
     for (SurfaceElementIndex elnr : top.GetVertexSurfaceElements(v))          
       {
-        const Element2d & el = mesh.SurfaceElement (elnr);
+        const Element2d & el = mesh[elnr];
         
         const ELEMENT_FACE * elfaces = MeshTopology::GetFaces1 (el.GetType());
 	
@@ -360,8 +363,8 @@ namespace netgen
     (*testout) << "nv   = " << nv << endl;
 
     (*tracer) ("Topology::Update setup tables", false);
-    Array<int,PointIndex::BASE> cnt(nv);
-    Array<int> vnums;
+    NgArray<int,PointIndex::BASE> cnt(nv);
+    NgArray<int> vnums;
 
     /*
       generate:
@@ -391,14 +394,14 @@ namespace netgen
        });
     
     vert2element = TABLE<ElementIndex,PointIndex::BASE> (cnt);
-    /*
     for (ElementIndex ei = 0; ei < ne; ei++)
       {
 	const Element & el = (*mesh)[ei];
 	for (int j = 0; j < el.GetNV(); j++)
 	  vert2element.AddSave (el[j], ei);
       }
-    */
+    
+    /*
     ParallelForRange
       (tm, ne,
        [&] (size_t begin, size_t end)
@@ -410,6 +413,8 @@ namespace netgen
                vert2element.ParallelAdd (el[j], ei);
            }
        });
+       requires sorting !!!!
+    */
     
     cnt = 0;
     /*
@@ -435,14 +440,14 @@ namespace netgen
     
 
     vert2surfelement = TABLE<SurfaceElementIndex,PointIndex::BASE> (cnt);
-    /*
+
     for (SurfaceElementIndex sei = 0; sei < nse; sei++)
       {
 	const Element2d & el = (*mesh)[sei];
 	for (int j = 0; j < el.GetNV(); j++)
 	  vert2surfelement.AddSave (el[j], sei);
       }
-    */
+    /*
     ParallelForRange
       (tm, nse,
        [&] (size_t begin, size_t end)
@@ -454,7 +459,8 @@ namespace netgen
                vert2surfelement.ParallelAdd (el[j], sei);
            }
        });
-
+       requires sorting !!!
+    */
 
     cnt = 0;
     for (SegmentIndex si = 0; si < nseg; si++)
@@ -518,16 +524,18 @@ namespace netgen
 
 	// ensure all coarse grid and intermediate level edges
 	cnt = 0;
-	for (int i = mesh->mlbetweennodes.Begin(); i < mesh->mlbetweennodes.End(); i++)
+	// for (int i = mesh->mlbetweennodes.Begin(); i < mesh->mlbetweennodes.End(); i++)
+        for (int i : mesh->mlbetweennodes.Range())
 	  {
 	    INDEX_2 parents = Sort (mesh->mlbetweennodes[i]);
 	    if (parents[0] >= PointIndex::BASE) cnt[parents[0]]++;
 	  }
 	TABLE<int,PointIndex::BASE> vert2vertcoarse (cnt);
-	for (int i = mesh->mlbetweennodes.Begin(); i < mesh->mlbetweennodes.End(); i++)
+	// for (int i = mesh->mlbetweennodes.Begin(); i < mesh->mlbetweennodes.End(); i++)
+        for (int i : mesh->mlbetweennodes.Range())
 	  {
 	    INDEX_2 parents = Sort (mesh->mlbetweennodes[i]);
-	    if (parents[0] > PointIndex::BASE) vert2vertcoarse.AddSave (parents[0], parents[1]);
+	    if (parents[0] >= PointIndex::BASE) vert2vertcoarse.AddSave (parents[0], parents[1]);
 	  }
 
 
@@ -595,7 +603,7 @@ namespace netgen
 
 
         // INDEX_CLOSED_HASHTABLE<int> v2eht(2*max_edge_on_vertex+10);
-	// Array<int> vertex2;
+	// NgArray<int> vertex2;
 	// for (PointIndex v = PointIndex::BASE; v < nv+PointIndex::BASE; v++)
 
         ParallelForRange
@@ -603,7 +611,7 @@ namespace netgen
            [&] (size_t begin, size_t end)
            {
              INDEX_CLOSED_HASHTABLE<int> v2eht(2*max_edge_on_vertex+10);
-             Array<int> vertex2;
+             NgArray<int> vertex2;
              for (PointIndex v = begin+PointIndex::BASE;
                   v < end+PointIndex::BASE; v++)
                {
@@ -673,16 +681,16 @@ namespace netgen
     if (buildfaces) 
       {
 	static int timer2 = NgProfiler::CreateTimer ("topology::buildfaces");
-	static int timer2a = NgProfiler::CreateTimer ("topology::buildfacesa");
-	static int timer2b = NgProfiler::CreateTimer ("topology::buildfacesb");
-        static int timer2b1 = NgProfiler::CreateTimer ("topology::buildfacesb1");
-	static int timer2c = NgProfiler::CreateTimer ("topology::buildfacesc");
+	// static int timer2a = NgProfiler::CreateTimer ("topology::buildfacesa");
+	// static int timer2b = NgProfiler::CreateTimer ("topology::buildfacesb");
+        // static int timer2b1 = NgProfiler::CreateTimer ("topology::buildfacesb1");
+	// static int timer2c = NgProfiler::CreateTimer ("topology::buildfacesc");
 	NgProfiler::RegionTimer reg2 (timer2);
 
 	if (id == 0)
 	  PrintMessage (5, "Update faces ");
 
-        NgProfiler::StartTimer (timer2a);
+        // NgProfiler::StartTimer (timer2a);
 
 	faces.SetSize(ne);
 	surffaces.SetSize(nse);
@@ -711,8 +719,8 @@ namespace netgen
 
 
 
-        NgProfiler::StopTimer (timer2a);
-        NgProfiler::StartTimer (timer2b);
+        // NgProfiler::StopTimer (timer2a);
+        // NgProfiler::StartTimer (timer2b);
 
         INDEX_3_CLOSED_HASHTABLE<int> vert2face(2*max_face_on_vertex+10);         
 
@@ -721,7 +729,7 @@ namespace netgen
         // count faces associated with vertices
         cnt = 0;
         // for (auto v : mesh.Points().Range())
-        NgProfiler::StartTimer (timer2b1);
+        // NgProfiler::StartTimer (timer2b1);
         ParallelForRange
           (tm, mesh->GetNV(), // Points().Size(),
             [&] (size_t begin, size_t end)
@@ -754,7 +762,7 @@ namespace netgen
                   cnt[v] = cnti;
                 }
             } );
-        NgProfiler::StopTimer (timer2b1);
+        // NgProfiler::StopTimer (timer2b1);
         
         // accumulate number of faces
         int nfa = oldnfa;
@@ -1090,8 +1098,8 @@ namespace netgen
 
 	// *testout << "face2vert = " << endl << face2vert << endl;
 
-        NgProfiler::StopTimer (timer2b);
-        NgProfiler::StartTimer (timer2c);
+        // NgProfiler::StopTimer (timer2b);
+        // NgProfiler::StartTimer (timer2c);
 
 
 	face2surfel.SetSize (nfa);
@@ -1143,11 +1151,11 @@ namespace netgen
 #endif
 
         (*tracer) ("Topology::Update count face_els", false);
-	Array<short int> face_els(nfa), face_surfels(nfa);
+	NgArray<short int> face_els(nfa), face_surfels(nfa);
 	face_els = 0;
 	face_surfels = 0;
         /*
-	Array<int> hfaces;
+	NgArray<int> hfaces;
 	for (int i = 1; i <= ne; i++)
 	  {
 	    GetElementFaces (i, hfaces);
@@ -1159,7 +1167,7 @@ namespace netgen
           (tm, ne,
             [&] (size_t begin, size_t end)
             {
-              Array<int> hfaces;              
+              NgArray<int> hfaces;              
               for (ElementIndex ei = begin; ei < end; ei++)
                 {
                   GetElementFaces (ei+1, hfaces);
@@ -1202,7 +1210,7 @@ namespace netgen
                             (*testout) << (*mesh)[(PointIndex)face2vert[i].I(j+1)] << " ";
 			(*testout) << endl;
 
-			FlatArray<ElementIndex> vertels = GetVertexElements (face2vert[i].I(1));
+			NgFlatArray<ElementIndex> vertels = GetVertexElements (face2vert[i].I(1));
 			for (int k = 0; k < vertels.Size(); k++)
 			  {
 			    int elfaces[10], orient[10];
@@ -1228,7 +1236,7 @@ namespace netgen
 	    if (cnt_err && ntasks == 1)
 	      cout << cnt_err << " elements are not matching !!!" << endl;
 	  }
-        NgProfiler::StopTimer (timer2c);
+        // NgProfiler::StopTimer (timer2c);
       }
     
 
@@ -1367,7 +1375,7 @@ namespace netgen
 
 
 
-  void MeshTopology :: GetElementEdges (int elnr, Array<int> & eledges) const
+  void MeshTopology :: GetElementEdges (int elnr, NgArray<int> & eledges) const
   {
     int ned = GetNEdges (mesh->VolumeElement(elnr).GetType());
     eledges.SetSize (ned);
@@ -1375,7 +1383,7 @@ namespace netgen
       eledges[i] = edges.Get(elnr)[i].nr+1;
       // eledges[i] = abs (edges.Get(elnr)[i]);
   }
-  void MeshTopology :: GetElementFaces (int elnr, Array<int> & elfaces, bool withorientation) const
+  void MeshTopology :: GetElementFaces (int elnr, NgArray<int> & elfaces, bool withorientation) const
   {
     int nfa = GetNFaces (mesh->VolumeElement(elnr).GetType());
     elfaces.SetSize (nfa);
@@ -1403,7 +1411,7 @@ namespace netgen
       }
   }
 
-  void MeshTopology :: GetElementEdgeOrientations (int elnr, Array<int> & eorient) const
+  void MeshTopology :: GetElementEdgeOrientations (int elnr, NgArray<int> & eorient) const
   {
     int ned = GetNEdges (mesh->VolumeElement(elnr).GetType());
     eorient.SetSize (ned);
@@ -1413,7 +1421,7 @@ namespace netgen
       eorient.Elem(i) = GetElementEdgeOrientation (elnr, i-1) ? -1 : 1;
   }
 
-  void MeshTopology :: GetElementFaceOrientations (int elnr, Array<int> & forient) const
+  void MeshTopology :: GetElementFaceOrientations (int elnr, NgArray<int> & forient) const
   {
     int nfa = GetNFaces (mesh->VolumeElement(elnr).GetType());
     forient.SetSize (nfa);
@@ -1515,7 +1523,7 @@ namespace netgen
     return 6;
   }
 
-  void MeshTopology :: GetSurfaceElementEdges (int elnr, Array<int> & eledges) const
+  void MeshTopology :: GetSurfaceElementEdges (int elnr, NgArray<int> & eledges) const
   {
     int ned = GetNEdges (mesh->SurfaceElement(elnr).GetType());
     eledges.SetSize (ned);
@@ -1524,7 +1532,7 @@ namespace netgen
       eledges[i] = surfedges.Get(elnr)[i].nr+1;
   }
 
-  void MeshTopology :: GetEdges (SurfaceElementIndex elnr, Array<int> & eledges) const
+  void MeshTopology :: GetEdges (SurfaceElementIndex elnr, NgArray<int> & eledges) const
   {
     int ned = GetNEdges ( (*mesh)[elnr].GetType());
     eledges.SetSize (ned);
@@ -1547,7 +1555,7 @@ namespace netgen
 
 
   void MeshTopology :: 
-  GetSurfaceElementEdgeOrientations (int elnr, Array<int> & eorient) const
+  GetSurfaceElementEdgeOrientations (int elnr, NgArray<int> & eorient) const
   {
     int ned = GetNEdges (mesh->SurfaceElement(elnr).GetType());
     eorient.SetSize (ned);
@@ -1761,7 +1769,7 @@ namespace netgen
 
 
   
-  void MeshTopology :: GetFaceVertices (int fnr, Array<int> & vertices) const
+  void MeshTopology :: GetFaceVertices (int fnr, NgArray<int> & vertices) const
   {
     vertices.SetSize(4);
     for (int i = 0; i < 4; i++)
@@ -1795,10 +1803,10 @@ namespace netgen
   }
 
 
-  void MeshTopology :: GetFaceEdges (int fnr, Array<int> & fedges, bool withorientation) const
+  void MeshTopology :: GetFaceEdges (int fnr, NgArray<int> & fedges, bool withorientation) const
   {
-    ArrayMem<int,4> pi(4);
-    ArrayMem<int,12> eledges;
+    NgArrayMem<int,4> pi(4);
+    NgArrayMem<int,12> eledges;
   
     fedges.SetSize (0);
     GetFaceVertices(fnr, pi);
@@ -1809,7 +1817,7 @@ namespace netgen
     // e3 = op e1(f2,f3) 
     // e4 = op e2(f1,f3) 
 
-    /*  ArrayMem<int,4> fp; 
+    /*  NgArrayMem<int,4> fp; 
 	fp[0] = pi[0]; 
 	for(int k=1;k<pi.Size();k++) 
 	if(fp[k]>fp[0]) swap(fp[k],fp[0]); 
@@ -1818,7 +1826,7 @@ namespace netgen
   
 
     //  GetVertexElements (pi[0], els);
-    FlatArray<ElementIndex> els = GetVertexElements (pi[0]);
+    NgFlatArray<ElementIndex> els = GetVertexElements (pi[0]);
 
     // find one element having all vertices of the face
     for (int i = 0; i < els.Size(); i++)
@@ -1910,7 +1918,7 @@ namespace netgen
   */
 
 
-  void MeshTopology :: GetVertexElements (int vnr, Array<ElementIndex> & elements) const
+  void MeshTopology :: GetVertexElements (int vnr, NgArray<ElementIndex> & elements) const
   {
     if (vert2element.Size())
       {
@@ -1922,30 +1930,30 @@ namespace netgen
   }
 
   /*
-  FlatArray<ElementIndex> MeshTopology :: GetVertexElements (int vnr) const
+  NgFlatArray<ElementIndex> MeshTopology :: GetVertexElements (int vnr) const
   {
     if (vert2element)
       return (*vert2element)[vnr];
-    return FlatArray<ElementIndex> (0,0);
+    return NgFlatArray<ElementIndex> (0,0);
   }
 
-  FlatArray<SurfaceElementIndex> MeshTopology :: GetVertexSurfaceElements (int vnr) const
+  NgFlatArray<SurfaceElementIndex> MeshTopology :: GetVertexSurfaceElements (int vnr) const
   {
     if (vert2surfelement)
       return (*vert2surfelement)[vnr];
-    return FlatArray<SurfaceElementIndex> (0,0);
+    return NgFlatArray<SurfaceElementIndex> (0,0);
   }
 
-  FlatArray<SegmentIndex> MeshTopology :: GetVertexSegments (int vnr) const
+  NgFlatArray<SegmentIndex> MeshTopology :: GetVertexSegments (int vnr) const
   {
     if (vert2segment)
       return (*vert2segment)[vnr];
-    return FlatArray<SegmentIndex> (0,0);
+    return NgFlatArray<SegmentIndex> (0,0);
   }
   */
 
   void MeshTopology :: GetVertexSurfaceElements( int vnr, 
-						 Array<SurfaceElementIndex> & elements ) const
+						 NgArray<SurfaceElementIndex> & elements ) const
   {
     if (vert2surfelement.Size())
       {
@@ -1960,8 +1968,8 @@ namespace netgen
 
   int MeshTopology :: GetVerticesEdge ( int v1, int v2 ) const
   {
-    Array<ElementIndex> elements_v1;
-    Array<int> elementedges;
+    NgArray<ElementIndex> elements_v1;
+    NgArray<int> elementedges;
     GetVertexElements ( v1, elements_v1);
     int edv1, edv2;
 
@@ -1982,11 +1990,11 @@ namespace netgen
 
 
   void MeshTopology :: 
-  GetSegmentVolumeElements ( int segnr, Array<ElementIndex> & volels ) const
+  GetSegmentVolumeElements ( int segnr, NgArray<ElementIndex> & volels ) const
   {
     int v1, v2;
     GetEdgeVertices ( GetSegmentEdge (segnr), v1, v2 );
-    Array<ElementIndex> volels1, volels2;
+    NgArray<ElementIndex> volels1, volels2;
     GetVertexElements ( v1, volels1 );
     GetVertexElements ( v2, volels2 );
     volels.SetSize(0);
@@ -1997,11 +2005,11 @@ namespace netgen
   }
 
   void MeshTopology :: 
-  GetSegmentSurfaceElements (int segnr, Array<SurfaceElementIndex> & els) const
+  GetSegmentSurfaceElements (int segnr, NgArray<SurfaceElementIndex> & els) const
   {
     int v1, v2;
     GetEdgeVertices ( GetSegmentEdge (segnr), v1, v2 );
-    Array<SurfaceElementIndex> els1, els2;
+    NgArray<SurfaceElementIndex> els1, els2;
     GetVertexSurfaceElements ( v1, els1 );
     GetVertexSurfaceElements ( v2, els2 );
     els.SetSize(0);

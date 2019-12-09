@@ -23,16 +23,21 @@
 
 #include <meshing.hpp>
 
+#include "stltopology.hpp"
+#include "stltool.hpp"
+#include "stlline.hpp"
+ 
+
 
 namespace netgen
 {
   /*
-  inline int IsInArray(int n, const Array<int>& ia)
+  inline int IsInArray(int n, const NgArray<int>& ia)
   {
     return ia.Contains(n); 
   }
 
-  inline bool AddIfNotExists(Array<int>& list, int x)
+  inline bool AddIfNotExists(NgArray<int>& list, int x)
   {
     if (list.Contains(x)) return false;
     list.Append(x);
@@ -40,14 +45,10 @@ namespace netgen
   }
   */
   
-  extern DLL_HEADER MeshingParameters mparam;
+// extern DLL_HEADER MeshingParameters mparam;
   
 
 
-#include "stltopology.hpp"
-#include "stltool.hpp"
-#include "stlline.hpp"
- 
 
 
 
@@ -56,7 +57,7 @@ namespace netgen
 
   class STLEdgeDataList
   {
-    Array<int> storedstatus;
+    NgArray<int> storedstatus;
     STLTopology & geom;
   public:
   
@@ -88,8 +89,8 @@ namespace netgen
     void Write(ofstream& of) const;
     void Read(ifstream& ifs);
 
-    void BuildLineWithEdge(int ep1, int ep2, Array<twoint>& line);
-    void BuildClusterWithEdge(int ep1, int ep2, Array<twoint>& line);
+    void BuildLineWithEdge(int ep1, int ep2, NgArray<twoint>& line);
+    void BuildClusterWithEdge(int ep1, int ep2, NgArray<twoint>& line);
 
     int GetNEPPStat(int p, int status) const;
     int GetNConfCandEPP(int p) const;
@@ -103,22 +104,22 @@ namespace netgen
   class STLGeometry : public NetgenGeometry, public STLTopology
   {
     // edges to be meshed:
-    Array<STLEdge> edges;
+    NgArray<STLEdge> edges;
     //edges per point
     TABLE<int> edgesperpoint;
 
     // line: a connection of edges
-    Array<STLLine*> lines;
-    Array<int> lineendpoints; //per geometrypoint, 1 = is endpoint; 0 = no endpoint,
+    NgArray<STLLine*> lines;
+    NgArray<int> lineendpoints; //per geometrypoint, 1 = is endpoint; 0 = no endpoint,
 
-    Array<Vec3d> normals; //normals belong to points!
+    NgArray<Vec3d> normals; //normals belong to points!
 
-    Array<twoint> externaledges;
+    NgArray<twoint> externaledges;
 
     int undoexternaledges;
-    Array<twoint> storedexternaledges;
+    NgArray<twoint> storedexternaledges;
 
-    STLEdgeDataList * edgedata;
+    unique_ptr<STLEdgeDataList> edgedata;
     //  STLEdgeDataList edgedata_store;
     int calcedgedataanglesnew;
 
@@ -129,27 +130,27 @@ namespace netgen
     int facecnt; 
     //meshpoint is only set, if an edge is at this point!!!
 
-    Array<int> vicinity; //is one, if a triangle belongs to vicinity (eg. of selecttrig)
-    Array<int> markedtrigs; //is one, if a triangle belongs to marked triangles (calcdirtystrigs)
-    Array<Point3d> markedsegs; //every pointpair is a segment!!!  
-    Array<twoint> selectedmultiedge;
+    NgArray<int> vicinity; //is one, if a triangle belongs to vicinity (eg. of selecttrig)
+    NgArray<int> markedtrigs; //is one, if a triangle belongs to marked triangles (calcdirtystrigs)
+    NgArray<Point3d> markedsegs; //every pointpair is a segment!!!  
+    NgArray<twoint> selectedmultiedge;
 
 
     //spiralpoints:
-    Array<int> spiralpoints;
+    NgArray<int> spiralpoints;
     //
-    Array<STLChart*> atlas;
+    Array<unique_ptr<STLChart>, ChartId> atlas;
     //marks all already charted trigs with chartnumber
-    Array<int> chartmark; 
+    Array<ChartId, STLTrigId> chartmark; 
     //outerchartspertrig, ascending sorted
     TABLE<int> outerchartspertrig;
 
 
     //for meshing and project:
-    Array<int> meshcharttrigs; //per trig: 1=belong to chart, 0 not
-    int meshchart;
+    NgArray<int> meshcharttrigs; //per trig: 1=belong to chart, 0 not
+    mutable int meshchart;
 
-    Array<int> ha_points;  // help array, np long, filled with 0 
+    NgArray<int> ha_points;  // help array, np long, filled with 0 
 
 
     // sharp geometric edges not declared as edges
@@ -158,12 +159,10 @@ namespace netgen
 
 
     //transformation:
-    Vec<3> meshtrignv;
+    mutable Vec<3> meshtrignv;
     Vec<3> ex, ey, ez;
     Point<3> p1;
 
-    mutable class RefinementSTLGeometry * ref; 
-    
   public:
     int edgesfound;
     int surfacemeshed;
@@ -176,28 +175,45 @@ namespace netgen
     //int selecttrig, nodeofseltrig;
 
     //only for testing;
-    Array<STLLine*> meshlines;
-    Array<Point3d> meshpoints;
+    NgArray<STLLine*> meshlines;
+    NgArray<Point3d> meshpoints;
 
     double area;
   public:
     STLGeometry();
     virtual ~STLGeometry();
 
-    void DoArchive(Archive& ar)
+    void DoArchive(Archive& ar) override
     {
       STLTopology::DoArchive(ar);
     }
 
     void Clear();
 
-    virtual void Save (string filename) const;
+    virtual void Save (string filename) const override;
+
+    bool CalcPointGeomInfo(int surfind, PointGeomInfo& gi, const Point<3> & p3) const override;
+    PointGeomInfo ProjectPoint(INDEX surfind, Point<3> & p) const override;
+    bool ProjectPointGI (int surfind, Point<3> & p, PointGeomInfo & gi) const override;
+    Vec<3> GetNormal(int surfind, const Point<3> & p, const PointGeomInfo* gi = nullptr) const override;
+    void PointBetween(const Point<3> & p1, const Point<3> & p2,
+                      double secpoint, int surfi,
+                      const PointGeomInfo & gi1,
+                      const PointGeomInfo & gi2,
+                      Point<3> & newp, PointGeomInfo & newgi) const override;
+
+    void PointBetweenEdge(const Point<3> & p1, const Point<3> & p2, double secpoint,
+                          int surfi1, int surfi2,
+                          const EdgePointGeomInfo & ap1,
+                          const EdgePointGeomInfo & ap2,
+                          Point<3> & newp, EdgePointGeomInfo & newgi) const override;
+
 
 
 	DLL_HEADER void STLInfo(double* data);
     //stldoctor:
-	DLL_HEADER void SmoothNormals();
-	DLL_HEADER void MarkNonSmoothNormals();
+	DLL_HEADER void SmoothNormals(const STLParameters& stlparam);
+	DLL_HEADER void MarkNonSmoothNormals(const STLParameters& stlparam);
 
 	DLL_HEADER void CalcEdgeData();
 	DLL_HEADER void CalcEdgeDataAngles();
@@ -211,14 +227,14 @@ namespace netgen
     //void ClearSelectedMultiEdge() {selectedmultiedge.SetSize(0);}
     //void AddSelectedMultiEdge(twoint ep) {selectedmultiedge.Append(ep);}
     //int SelectedMultiEdgeSize() {return selectedmultiedge.Size();}
-    const Array<twoint>& SelectedMultiEdge() {return selectedmultiedge;}
+    const NgArray<twoint>& SelectedMultiEdge() {return selectedmultiedge;}
     twoint GetNearestSelectedDefinedEdge();
     void BuildSelectedMultiEdge(twoint ep);
     void BuildSelectedEdge(twoint ep);
     void BuildSelectedCluster(twoint ep);
 
 	DLL_HEADER void ImportEdges();
-	DLL_HEADER void AddEdges(const Array<Point<3> >& eps);
+	DLL_HEADER void AddEdges(const NgArray<Point<3> >& eps);
 	DLL_HEADER void ExportEdges();
 	DLL_HEADER void LoadEdgeData(const char* file);
 	DLL_HEADER void SaveEdgeData(const char* file);
@@ -251,7 +267,7 @@ namespace netgen
 	DLL_HEADER void AddClosedLinesToExternalEdges();
 	DLL_HEADER void AddLongLinesToExternalEdges();
 	DLL_HEADER void AddAllNotSingleLinesToExternalEdges();
-	DLL_HEADER void STLDoctorBuildEdges();
+	DLL_HEADER void STLDoctorBuildEdges(const STLParameters& stlparam);
 	DLL_HEADER void AddExternalEdgesFromGeomLine();
 	DLL_HEADER void DeleteDirtyExternalEdges();
 	DLL_HEADER void DeleteExternalEdgeAtSelected();
@@ -287,15 +303,15 @@ namespace netgen
     }
     int GetNMarkedSegs() {return markedsegs.Size()/2;}
 	DLL_HEADER void CalcVicinity(int starttrig);
-	DLL_HEADER void GetVicinity(int starttrig, int size, Array<int>& vic);
+	DLL_HEADER void GetVicinity(int starttrig, int size, NgArray<int>& vic);
 
 	DLL_HEADER int Vicinity(int trig) const;
 
 	DLL_HEADER void InitMarkedTrigs();
-	DLL_HEADER void MarkDirtyTrigs();
-	DLL_HEADER void SmoothDirtyTrigs();
-	DLL_HEADER void GeomSmoothRevertedTrigs();
-	DLL_HEADER void MarkRevertedTrigs();
+	DLL_HEADER void MarkDirtyTrigs(const STLParameters& stlparam);
+	DLL_HEADER void SmoothDirtyTrigs(const STLParameters& stlparam);
+	DLL_HEADER void GeomSmoothRevertedTrigs(const STLParameters& stlparam);
+	DLL_HEADER void MarkRevertedTrigs(const STLParameters& stlparam);
 	DLL_HEADER double CalcTrigBadness(int i);
 	DLL_HEADER int IsMarkedTrig(int trig) const;
 	DLL_HEADER void SetMarkedTrig(int trig, int num);
@@ -330,8 +346,8 @@ namespace netgen
     ///
 
     ///ReadTriangle->STLTriangle, initialise some important variables, always after load!!!
-    virtual void InitSTLGeometry (const Array<STLReadTriangle> & readtrigs);
-    virtual void TopologyChanged(); //do some things, if topology changed!
+    virtual void InitSTLGeometry (const NgArray<STLReadTriangle> & readtrigs) override;
+    virtual void TopologyChanged() override; //do some things, if topology changed!
     int CheckGeometryOverlapping();
 
     //get NO edges per point
@@ -353,36 +369,36 @@ namespace netgen
 
     ///Build EdgeSegments
     void ClearEdges();
-    void BuildEdges();
+    void BuildEdges(const STLParameters& stlparam);
     void BuildEdgesPerPoint();
     void UseExternalEdges();
 
 
-    void FindEdgesFromAngles();
+    void FindEdgesFromAngles(const STLParameters& stlparam);
     void CalcFaceNums();
     int GetNOBodys();
     int GetNOFaces() {return facecnt;}
-    void LinkEdges();
+    void LinkEdges(const STLParameters& stlparam);
 
-    void AddConeAndSpiralEdges();
+    void AddConeAndSpiralEdges(const STLParameters& stlparam);
     void AddFaceEdges(); //each face should have at least one starting edge (outherwise it won't be meshed)
 
-    void GetDirtyChartTrigs(int chartnum, STLChart& chart, const Array<int>& outercharttrigs, 
-			    Array<int>& chartpointchecked, Array<int>& dirtytrigs);
+    void GetDirtyChartTrigs(int chartnum, STLChart& chart, const Array<ChartId, STLTrigId>& outercharttrigs, 
+			    NgArray<ChartId>& chartpointchecked, NgArray<int>& dirtytrigs);
 
     void ClearSpiralPoints();
     void SetSpiralPoint(int pn) {spiralpoints.Elem(pn) = 1;};
     int GetSpiralPoint(int pn) const {return spiralpoints.Get(pn);};
 
-    void GetSortedTrianglesAroundPoint(int p, int starttrig, Array<int>& trigs);
+    void GetSortedTrianglesAroundPoint(STLPointId p, STLTrigId starttrig, Array<STLTrigId>& trigs);
 
     // smooth edges: sharp geometric edges not declared as edges
     void BuildSmoothEdges ();
-    int IsSmoothEdge (int pi1, int pi2) const;
+    bool IsSmoothEdge (int pi1, int pi2) const;
 
 
     //make charts with regions of a max. angle
-    void MakeAtlas(class Mesh & mesh);
+    void MakeAtlas(class Mesh & mesh, const MeshingParameters& mparam, const STLParameters& stlparam);
 
     //outerchartspertrig, sorted!
     int GetOCPTSize() const {return outerchartspertrig.Size();};
@@ -393,23 +409,22 @@ namespace netgen
     int TrigIsInOC(int tn, int ocn) const;
  
     //get chart number of a trig or 0 if unmarked
-    int GetChartNr(int i) const;
-    int GetMarker(int i) const 
-    { return chartmark.Get(i); }
-    void SetMarker(int nr, int m);
-    int GetNOCharts() const;
+    DLL_HEADER ChartId GetChartNr(STLTrigId i) const;
+    ChartId GetMarker(STLTrigId i) const  { return chartmark[i]; }
+    void SetMarker(STLTrigId nr, ChartId m);
+    size_t GetNOCharts() const { return atlas.Size(); }
     //get a chart from atlas
-    const STLChart& GetChart(int nr) const;
-    STLChart& GetChart(int nr) {return *(atlas.Get(nr));};
-    int AtlasMade() const;
+    const STLChart& GetChart(ChartId nr) const { return *atlas[nr];};
+    STLChart & GetChart(ChartId nr) { return *atlas[nr];};
+    DLL_HEADER int AtlasMade() const;
   
-    void GetInnerChartLimes(Array<twoint>& limes, int chartnum);
+    void GetInnerChartLimes(NgArray<twoint>& limes, ChartId chartnum);
 
     //FOR MESHING
     int GetMeshChartNr () { return meshchart; }
-    void GetMeshChartBoundary (Array<Point2d > & points,
-			       Array<Point3d > & points3d,
-			       Array<INDEX_2> & lines, double h);
+    void GetMeshChartBoundary (NgArray<Point<2>> & points,
+			       NgArray<Point<3>> & points3d,
+			       NgArray<INDEX_2> & lines, double h);
 
 
     Point<3> PointBetween(const Point<3> & p1, int t1, const Point<3> & p2, int t2);
@@ -419,7 +434,7 @@ namespace netgen
     //
     void DefineTangentialPlane(const Point<3> & ap1, const Point<3> & ap2, int trig);
     //
-    void SelectChartOfTriangle (int trignum);
+    void SelectChartOfTriangle (int trignum) const;
     //
     void SelectChartOfPoint (const Point<3> & p);
     //
@@ -450,17 +465,17 @@ namespace netgen
     int LineEndPointsSet() const {return lineendpoints.Size() == GetNP();}
     void ClearLineEndPoints();
 
-	DLL_HEADER void RestrictLocalH(class Mesh & mesh, double gh);
-    void RestrictLocalHCurv(class Mesh & mesh, double gh);
-    void RestrictHChartDistOneChart(int chartnum, Array<int>& acttrigs, class Mesh & mesh, 
-				    double gh, double fact, double minh);
+    DLL_HEADER void RestrictLocalH(class Mesh & mesh, double gh, const STLParameters& stlparam, const MeshingParameters& mparam);
+    void RestrictLocalHCurv(class Mesh & mesh, double gh, const STLParameters& stlparam);
+    void RestrictHChartDistOneChart(ChartId chartnum, NgArray<int>& acttrigs, class Mesh & mesh, 
+				    double gh, double fact, double minh, const STLParameters& stlparam);
 
     friend class MeshingSTLSurface;
 
-
-    virtual int GenerateMesh (shared_ptr<Mesh> & mesh, MeshingParameters & mparam);
+    int GenerateMesh (shared_ptr<Mesh> & mesh, MeshingParameters & mparam) override;
     
-    virtual const Refinement & GetRefinement () const;
+    // Add additional Point to chart to close the surface and write the resulting stl to a file
+    DLL_HEADER void WriteChartToFile( ChartId chartnumber, string filename="chart.slb" );
   };
  
 
@@ -468,7 +483,8 @@ namespace netgen
 
 
 
-  extern int STLMeshingDummy (STLGeometry* stlgeometry, shared_ptr<Mesh> & mesh, MeshingParameters & mparam);
+extern int STLMeshingDummy (STLGeometry* stlgeometry, shared_ptr<Mesh> & mesh, const MeshingParameters & mparam,
+                            const STLParameters& stlpar);
 
 
 }

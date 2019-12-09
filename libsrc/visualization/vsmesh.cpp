@@ -55,8 +55,8 @@ namespace netgen
     selface = -1;
     selelement = -1;
     locpi = 1;
-    selpoint = -1;
-    selpoint2 = -1;
+    selpoint = PointIndex::INVALID;
+    selpoint2 = PointIndex::INVALID;
     seledge = -1;
 
     minh = 0.0;
@@ -344,7 +344,7 @@ namespace netgen
     Point3d pmin, pmax;
     static double oldrad = 0;
 
-    Array<Element2d> faces;
+    NgArray<Element2d> faces;
 
     int meshtimestamp = mesh->GetTimeStamp();
     if (meshtimestamp > vstimestamp || zoomall)
@@ -490,7 +490,7 @@ namespace netgen
 	if (vispar.drawfacenumbers)
 	  {
 	    const MeshTopology & top = mesh->GetTopology();
-	    Array<int> v;
+	    NgArray<int> v;
 	    for (int i = 1; i <= top.GetNFaces(); i++)
 	      {
 		top.GetFaceVertices (i, v);
@@ -521,11 +521,11 @@ namespace netgen
 
 	if (vispar.drawelementnumbers)
 	  {
-	    Array<int> v;
+	    NgArray<int> v;
 	    for (int i = 1; i <= mesh->GetNE(); i++)
 	      {
 		// const ELEMENTTYPE & eltype = mesh->ElementType(i);
-		Array<int> pnums;
+		NgArray<int> pnums;
 
 		Point3d p;
 		const Element & el = mesh->VolumeElement (i);
@@ -665,10 +665,10 @@ namespace netgen
 
 	for (ElementIndex ei : mesh->VolumeElements().Range())
 	  {
-            if (mesh->VolumeElement(ei).flags.badel)
+            if ((*mesh)[ei].flags.badel)
 	      {
 		// copy to be thread-safe
-		Element el = mesh->VolumeElement (ei);
+		Element el = (*mesh)[ei];
 		if ( (el.GetNP() == 4) || (el.GetNP() == 10))
 		  {
 		    glBegin (GL_LINES);
@@ -749,10 +749,12 @@ namespace netgen
 
         for (SurfaceElementIndex sei : mesh->SurfaceElements().Range())
 	  {
-            Element2d el = mesh->SurfaceElement(sei); // copy to be thread-safe
+            Element2d el = (*mesh)[sei]; // copy to be thread-safe
             if (!el.BadElement())
 	      continue;
 
+            if (el.IsDeleted()) continue;
+            
             bool drawel = true;
             for (int j = 1; j <= el.GetNP(); j++)
 	      if (!el.PNum(j).IsValid())
@@ -1017,9 +1019,8 @@ namespace netgen
 	// the mesh data structure, rather than limit it to the OCC geometry 
 	// structure... allows other geometry types to use face colours too
 
-	matcol[0] = mesh->GetFaceDescriptor(faceindex).SurfColour().X();
-	matcol[1] = mesh->GetFaceDescriptor(faceindex).SurfColour().Y();
-	matcol[2] = mesh->GetFaceDescriptor(faceindex).SurfColour().Z();
+        for (auto i : Range(3))
+            matcol[i] = mesh->GetFaceDescriptor(faceindex).SurfColour()[i];
 	matcol[3] = 1.0;
 
 	if (faceindex == selface)
@@ -1027,8 +1028,11 @@ namespace netgen
 	else
 	  glMaterialfv(GL_FRONT_AND_BACK, GL_AMBIENT_AND_DIFFUSE, matcol);
 	
+        static Point<3> xa[129];
+        static Vec<3> na[129];
 
-
+        
+        
 	for (int hi = 0; hi < seia.Size(); hi++)
 	  {
 	    SurfaceElementIndex sei = seia[hi];
@@ -1056,8 +1060,6 @@ namespace netgen
                   if (curv.IsHighOrder()) //  && curv.IsSurfaceElementCurved(sei))
 		    {
 		      if (hoplotn > 128) hoplotn = 128;
-		      Point<3> xa[129];
-		      Vec<3> na[129];
 
 		      for (int i = 0; i < hoplotn; i++)
 			{
@@ -1815,9 +1817,9 @@ namespace netgen
 
 
 
-    Array<Element2d> faces;
+    NgArray<Element2d> faces;
 
-    BitArray shownode(mesh->GetNP());
+    NgBitArray shownode(mesh->GetNP());
     if (vispar.clipping.enable)
       {
 	shownode.Clear();
@@ -1955,8 +1957,8 @@ namespace netgen
 
 		int order = curv.GetOrder();
 
-		Array<Point<3> > ploc ( (order+1)*(order+1) );
-		Array<Point<3> > pglob ( (order+1)*(order+1) );
+		NgArray<Point<3> > ploc ( (order+1)*(order+1) );
+		NgArray<Point<3> > pglob ( (order+1)*(order+1) );
 		Point<3> fpts[3];
 
 		for (int trig = 0; trig < 4; trig++)
@@ -2141,7 +2143,7 @@ namespace netgen
     static float prismcol[] = { 0.0f, 1.0f, 1.0f, 1.0f };
     glLineWidth (1.0f);
 
-    Array<Element2d> faces;
+    NgArray<Element2d> faces;
 
 
     glMaterialfv(GL_FRONT, GL_AMBIENT_AND_DIFFUSE, prismcol);
@@ -2470,7 +2472,7 @@ namespace netgen
     glLineWidth (1.0f);
     glMaterialfv(GL_FRONT, GL_AMBIENT_AND_DIFFUSE, hexcol);
 
-    Array<Element2d> faces;
+    NgArray<Element2d> faces;
     // int hoplotn = 1 << vispar.subdivisions;
 
     for (ElementIndex ei = 0; ei < mesh->GetNE(); ei++)
@@ -2682,7 +2684,7 @@ namespace netgen
     glMaterialfv(GL_FRONT, GL_AMBIENT_AND_DIFFUSE, pyramidcol);
 
     glLineWidth (1.0f);
-    Array<Element2d> faces;
+    NgArray<Element2d> faces;
 
     for (ElementIndex ei = 0; ei < mesh->GetNE(); ei++)
       {

@@ -42,7 +42,7 @@ void netrule :: LoadRule (istream & ist)
 {
   char buf[256];
   char ch;
-  Point2d p;
+  Point<2> p;
   INDEX_2 lin;
   int i, j;
   DenseMatrix tempoldutonewu(20, 20), tempoldutofreearea(20, 20),
@@ -85,9 +85,9 @@ void netrule :: LoadRule (istream & ist)
 
 	  while (ch == '(')
 	    {
-	      ist >> p.X();
+	      ist >> p[0];
 	      ist >> ch;    // ','
-	      ist >> p.Y();
+	      ist >> p[1];
 	      ist >> ch;    // ')'
 
 	      points.Append (p);
@@ -188,9 +188,9 @@ void netrule :: LoadRule (istream & ist)
 
 	  while (ch == '(')
 	    {
-	      ist >> p.X();
+	      ist >> p[0];
 	      ist >> ch;    // ','
-	      ist >> p.Y();
+	      ist >> p[1];
 	      ist >> ch;    // ')'
 
 	      points.Append (p);
@@ -249,9 +249,9 @@ void netrule :: LoadRule (istream & ist)
 
 	  while (ch == '(')
 	    {
-	      ist >> p.X();
+	      ist >> p[0];
 	      ist >> ch;    // ','
-	      ist >> p.Y();
+	      ist >> p[1];
 	      ist >> ch;    // ')'
 
 	      freezone.Append (p);
@@ -294,9 +294,9 @@ void netrule :: LoadRule (istream & ist)
 	    {
 	      freepi++;
 
-	      ist >> p.X();
+	      ist >> p[0];
 	      ist >> ch;    // ','
-	      ist >> p.Y();
+	      ist >> p[1];
 	      ist >> ch;    // ')'
 
 	      freezonelimit.Elem(freepi) = p;
@@ -429,7 +429,7 @@ void netrule :: LoadRule (istream & ist)
   {
     char ok;
     int minn;
-    Array<int> pnearness (noldp);
+    NgArray<int> pnearness (noldp);
 
     for (i = 1; i <= pnearness.Size(); i++)
       pnearness.Elem(i) = 1000;
@@ -480,8 +480,8 @@ void netrule :: LoadRule (istream & ist)
 	for (int k = 0; k < oldutofreearea.Width(); k++)
 	  mati(j,k) = lam1 * oldutofreearea(j,k) + (1 - lam1) * oldutofreearealimit(j,k);
 
-      freezone_i[i] = new Array<Point2d> (freezone.Size());
-      Array<Point2d> & fzi = *freezone_i[i];
+      freezone_i[i] = new NgArray<Point<2>> (freezone.Size());
+      auto& fzi = *freezone_i[i];
       for (int j = 0; j < freezone.Size(); j++)
 	fzi[j] = freezonelimit[j] + lam1 * (freezone[j] - freezonelimit[j]);
     }
@@ -578,7 +578,9 @@ void Meshing2 :: LoadRules (const char * filename, bool quad)
       delete ist;
       exit (1);
     }
-    
+
+  Timer t("Parsing rules");
+  t.Start();
   while (!ist->eof())
     {
       buf[0] = 0;
@@ -597,7 +599,8 @@ void Meshing2 :: LoadRules (const char * filename, bool quad)
       //(*testout) << "loop" << endl;
     }
   //(*testout) << "POS3" << endl;
-
+  t.Stop();
+  
   delete ist;
   //delete [] tr1;
 }

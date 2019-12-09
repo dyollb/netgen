@@ -2,6 +2,11 @@
 #include <atomic>
 #include "meshing.hpp"
 
+#ifdef NG_PYTHON
+// must be included to instantiate Archive::Shallow(NetgenGeometry&)
+#include <core/python_ngcore.hpp>
+#endif
+
 namespace netgen
 {
 
@@ -10,17 +15,13 @@ namespace netgen
   Mesh :: Mesh ()
     : topology(*this), surfarea(*this)
   {
-    // volelements.SetName ("vol elements");
-    // surfelements.SetName ("surf elements");
-    // points.SetName ("meshpoints");
+    boundaryedges = nullptr;
+    surfelementht = nullptr; 
+    segmentht = nullptr;
 
-    boundaryedges = NULL;
-    surfelementht = NULL; 
-    segmentht = NULL;
-
-    lochfunc = NULL;
-    mglevels = 1;
-    elementsearchtree = NULL;
+    lochfunc = nullptr;
+    // mglevels = 1;
+    elementsearchtree = nullptr;
     elementsearchtreets = NextTimeStamp();
     majortimestamp = timestamp = NextTimeStamp();
     hglob = 1e10;
@@ -28,10 +29,9 @@ namespace netgen
     numvertices = -1;
     dimension = 3;
 
-    // topology = new MeshTopology (*this);
-    curvedelems = new CurvedElements (*this);
-    clusters = new AnisotropicClusters (*this);
-    ident = new Identifications (*this);
+    curvedelems = make_unique<CurvedElements> (*this);
+    clusters = make_unique<AnisotropicClusters> (*this);
+    ident = make_unique<Identifications> (*this);
 
     hpelements = NULL;
     coarsemesh = NULL;
@@ -45,25 +45,23 @@ namespace netgen
 
     // this->comm = netgen :: ng_comm;
 #ifdef PARALLEL
-    paralleltop = new ParallelMeshTopology (*this);
+    paralleltop = make_unique<ParallelMeshTopology> (*this);
 #endif
   }
 
 
   Mesh :: ~Mesh()
   {
-    // cout << "******************** deleting Mesh **********" << endl;
-    delete lochfunc;
-    delete boundaryedges;
-    delete surfelementht;
-    delete segmentht;
-    delete curvedelems;
-    delete clusters;
-    // delete topology;
-    delete ident;
-    delete elementsearchtree;
-    delete coarsemesh;
-    delete hpelements;
+    // delete lochfunc;
+    // delete boundaryedges;
+    // delete surfelementht;
+    // delete segmentht;
+    // delete curvedelems;
+    // delete clusters;
+    // delete ident;
+    // delete elementsearchtree;
+    // delete coarsemesh;
+    // delete hpelements;
 
     for (int i = 0; i < materials.Size(); i++)
       delete materials[i];
@@ -78,9 +76,9 @@ namespace netgen
     for (int i = 0; i < cd2names.Size(); i++)
       delete cd2names[i];
 
-#ifdef PARALLEL
-    delete paralleltop;
-#endif
+    // #ifdef PARALLEL
+    // delete paralleltop;
+    // #endif
   }
 
   void Mesh :: SetCommunicator(NgMPI_Comm acomm)
@@ -90,8 +88,9 @@ namespace netgen
 
   Mesh & Mesh :: operator= (const Mesh & mesh2)
   {
+    geometry = mesh2.geometry;
+    dimension = mesh2.dimension;
     points = mesh2.points;
-    // eltyps = mesh2.eltyps;
     segments = mesh2.segments;
     surfelements = mesh2.surfelements;
     volelements = mesh2.volelements;
@@ -99,15 +98,30 @@ namespace netgen
     facedecoding = mesh2.facedecoding;
     dimension = mesh2.dimension;
 
+
+    materials.SetSize( mesh2.materials.Size() );
+    for ( int i = 0; i < mesh2.materials.Size(); i++ )
+      if ( mesh2.materials[i] ) materials[i] = new string ( *mesh2.materials[i] );
+      else materials[i] = 0;
+
+
     bcnames.SetSize( mesh2.bcnames.Size() );
     for ( int i = 0; i < mesh2.bcnames.Size(); i++ )
       if ( mesh2.bcnames[i] ) bcnames[i] = new string ( *mesh2.bcnames[i] );
       else bcnames[i] = 0;
 
+
     cd2names.SetSize(mesh2.cd2names.Size());
     for (int i=0; i < mesh2.cd2names.Size(); i++)
       if (mesh2.cd2names[i]) cd2names[i] = new string(*mesh2.cd2names[i]);
       else cd2names[i] = 0;
+
+    cd3names.SetSize(mesh2.cd3names.Size());
+    for (int i=0; i < mesh2.cd3names.Size(); i++)
+      if (mesh2.cd3names[i]) cd3names[i] = new string(*mesh2.cd3names[i]);
+      else cd3names[i] = 0;
+
+    numvertices = mesh2.numvertices;
 
     return *this;
   }
@@ -124,21 +138,18 @@ namespace netgen
     lockedpoints.SetSize(0);
     // surfacesonnode.SetSize(0);
 
-    delete boundaryedges;
-    boundaryedges = NULL;
+    // delete boundaryedges;
+    boundaryedges = nullptr;
+    segmentht = nullptr;
+    surfelementht = nullptr;
 
     openelements.SetSize(0);
     facedecoding.SetSize(0);
 
-    delete ident;
-    ident = new Identifications (*this);
-    // delete topology;
-    // topology = new MeshTopology (*this);
+    ident = make_unique<Identifications> (*this);
     topology = MeshTopology (*this);
-    delete curvedelems;
-    curvedelems = new CurvedElements (*this);
-    delete clusters;
-    clusters = new AnisotropicClusters (*this);
+    curvedelems = make_unique<CurvedElements> (*this);
+    clusters = make_unique<AnisotropicClusters> (*this);
 
     for ( int i = 0; i < bcnames.Size(); i++ )
       if ( bcnames[i] ) delete bcnames[i];
@@ -146,8 +157,7 @@ namespace netgen
       if (cd2names[i]) delete cd2names[i];
 
 #ifdef PARALLEL
-    delete paralleltop;
-    paralleltop = new ParallelMeshTopology (*this);
+    paralleltop = make_unique<ParallelMeshTopology> (*this);
 #endif
 
     lock.UnLock();
@@ -158,10 +168,14 @@ namespace netgen
 
   void Mesh :: ClearSurfaceElements()
   { 
-    surfelements.SetSize(0); 
+    surfelements.SetSize(0);
+    /*
     for (int i = 0; i < facedecoding.Size(); i++)
       facedecoding[i].firstelement = -1;
-
+    */
+    for (auto & fd : facedecoding)
+      fd.firstelement = -1;
+    
     timestamp = NextTimeStamp();
   }
 
@@ -170,70 +184,29 @@ namespace netgen
   PointIndex Mesh :: AddPoint (const Point3d & p, int layer)
   { 
     return AddPoint (p, layer, INNERPOINT);
-    /*
-    NgLock lock(mutex);
-    lock.Lock();
-
-    timestamp = NextTimeStamp();
-
-    PointIndex pi = points.End();
-    points.Append ( MeshPoint (p, layer, INNERPOINT) ); 
-
-    lock.UnLock();
-
-    return pi;
-    */
   }
 
   PointIndex Mesh :: AddPoint (const Point3d & p, int layer, POINTTYPE type)
   { 
-    NgLock lock(mutex);
-    lock.Lock();
+
+    // PointIndex pi = points.End();
+    PointIndex pi = *points.Range().end();
+    if (points.Size() == points.AllocSize())
+      {
+        NgLock lock(mutex);
+        lock.Lock();
+        points.Append ( MeshPoint (p, layer, type) ); 
+        lock.UnLock();
+      }
+    else
+      {
+        points.Append ( MeshPoint (p, layer, type) ); 
+      }
 
     timestamp = NextTimeStamp();
 
-    PointIndex pi = points.End();
-    points.Append ( MeshPoint (p, layer, type) ); 
-
-    lock.UnLock();
-
     return pi;
   }
-
-  /*
-#ifdef PARALLEL
-  PointIndex Mesh :: AddPoint (const Point3d & p, bool isghost,  int layer)
-  { 
-    NgLock lock(mutex);
-    lock.Lock();
-
-    timestamp = NextTimeStamp();
-
-    PointIndex pi = points.Size() + PointIndex::BASE;
-    points.Append ( MeshPoint (p, layer, INNERPOINT) ); 
-
-    lock.UnLock();
-
-    return pi;
-  }
-
-  PointIndex Mesh :: AddPoint (const Point3d & p, bool isghost, int layer, POINTTYPE type)
-  { 
-    NgLock lock(mutex);
-    lock.Lock();
-
-    timestamp = NextTimeStamp();
-
-    PointIndex pi = points.Size() + PointIndex::BASE;
-    points.Append ( MeshPoint (p, layer, type) ); 
-
-    lock.UnLock();
-
-    return pi;
-  }
-
-#endif
-  */
 
 
   SegmentIndex Mesh :: AddSegment (const Segment & s)
@@ -281,42 +254,40 @@ namespace netgen
 
   SurfaceElementIndex Mesh :: AddSurfaceElement (const Element2d & el)
   {     
-    NgLock lock(mutex);
-    lock.Lock();
     timestamp = NextTimeStamp();
 
-    int maxn = el[0];
+    PointIndex maxn = el[0];
     for (int i = 1; i < el.GetNP(); i++)
       if (el[i] > maxn) maxn = el[i];
 
-    maxn += 1-PointIndex::BASE;
-
     /*
-      if (maxn > ptyps.Size())
-      {
-      int maxo = ptyps.Size();
-      ptyps.SetSize (maxn);
-      for (i = maxo+PointIndex::BASE; 
-      i < maxn+PointIndex::BASE; i++)
-      ptyps[i] = INNERPOINT;
-
-      }
-    */
+    maxn += 1-PointIndex::BASE;
     if (maxn <= points.Size())
       {
         for (int i = 0; i < el.GetNP(); i++)
           if (points[el[i]].Type() > SURFACEPOINT)
             points[el[i]].SetType(SURFACEPOINT);
       }
-    /*
-      else
-      {
-      cerr << "surf points nrs > points.Size" << endl;      
-      }
     */
+    // if (maxn < points.End())
+    if (maxn < *points.Range().end())
+      for (PointIndex pi : el.PNums())
+        if (points[pi].Type() > SURFACEPOINT)
+          points[pi].SetType(SURFACEPOINT);
 
+    
     SurfaceElementIndex si = surfelements.Size();
-    surfelements.Append (el); 
+    if (surfelements.AllocSize() == surfelements.Size())
+      {
+        NgLock lock(mutex);
+        lock.Lock();
+        surfelements.Append (el);
+        lock.UnLock();
+      }
+    else
+      {
+        surfelements.Append (el);        
+      }
 
     if (el.index<=0 || el.index > facedecoding.Size())
       cerr << "has no facedecoding: fd.size = " << facedecoding.Size() << ", ind = " << el.index << endl;
@@ -327,7 +298,6 @@ namespace netgen
     if (SurfaceArea().Valid())
       SurfaceArea().Add (el);
 
-    lock.UnLock();
     return si;
   }
 
@@ -367,15 +337,14 @@ namespace netgen
 
   ElementIndex Mesh :: AddVolumeElement (const Element & el)
   { 
-    NgLock lock(mutex);
-    lock.Lock();
-
+    /*
     int maxn = el[0];
     for (int i = 1; i < el.GetNP(); i++)
       if (el[i] > maxn) maxn = el[i];
 
     maxn += 1-PointIndex::BASE;
-
+    */
+    
     /*
       if (maxn > ptyps.Size())
       {
@@ -395,7 +364,17 @@ namespace netgen
 
     int ve = volelements.Size();
 
-    volelements.Append (el); 
+    if (volelements.Size() == volelements.AllocSize())
+      {
+        NgLock lock(mutex);
+        lock.Lock();
+        volelements.Append (el);
+        lock.UnLock();
+      }
+    else
+      {
+        volelements.Append (el);
+      }
     volelements.Last().flags.illegal_valid = 0;
 
     // while (volelements.Size() > eltyps.Size())
@@ -403,7 +382,6 @@ namespace netgen
 
     timestamp = NextTimeStamp();
 
-    lock.UnLock();
     return ve;
   }
 
@@ -418,7 +396,7 @@ namespace netgen
     */
 
     volelements[ei]  = el;
-    volelements.Last().flags.illegal_valid = 0;
+    volelements[ei].flags.illegal_valid = 0;
   }
 
 
@@ -477,8 +455,7 @@ namespace netgen
 
     outfile << GetNSE() << "\n";
 
-    SurfaceElementIndex sei;
-    for (sei = 0; sei < GetNSE(); sei++)
+    for (SurfaceElementIndex sei = 0; sei < GetNSE(); sei++)
       {
         if ((*this)[sei].GetIndex())
           {
@@ -621,7 +598,7 @@ namespace netgen
     if (ident -> GetMaxNr() > 0)
       {
         outfile << "identifications\n";
-        Array<INDEX_2> identpairs;
+        NgArray<INDEX_2> identpairs;
         int cnt = 0;
         for (i = 1; i <= ident -> GetMaxNr(); i++)
           {
@@ -760,13 +737,16 @@ namespace netgen
     */
 
     int cnt_sing = 0;
-    for (PointIndex pi = points.Begin(); pi < points.End(); pi++)
-      if ((*this)[pi].Singularity()>=1.) cnt_sing++;
-
+    // for (PointIndex pi = points.Begin(); pi < points.End(); pi++)
+    // if ((*this)[pi].Singularity()>=1.) cnt_sing++;
+    for (auto & p : points)
+      if (p.Singularity() >= 1.) cnt_sing++;
+      
     if (cnt_sing)
       {
         outfile << "singular_points" << endl << cnt_sing << endl;
-        for (PointIndex pi = points.Begin(); pi < points.End(); pi++)
+        // for (PointIndex pi = points.Begin(); pi < points.End(); pi++)
+        for (PointIndex pi : points.Range())
           if ((*this)[pi].Singularity()>=1.) 
             outfile << int(pi) << "\t" << (*this)[pi].Singularity() << endl;
       }
@@ -839,11 +819,11 @@ namespace netgen
           outfile.width(8);
           outfile << GetFaceDescriptor(i).SurfNr()+1 << " ";
           outfile.width(12);
-          outfile << GetFaceDescriptor(i).SurfColour().X() << " ";
+          outfile << GetFaceDescriptor(i).SurfColour()[0] << " ";
           outfile.width(12);
-          outfile << GetFaceDescriptor(i).SurfColour().Y() << " ";
+          outfile << GetFaceDescriptor(i).SurfColour()[1] << " ";
           outfile.width(12);
-          outfile << GetFaceDescriptor(i).SurfColour().Z();
+          outfile << GetFaceDescriptor(i).SurfColour()[2];
           outfile << endl;
        }
     }
@@ -884,6 +864,9 @@ namespace netgen
         throw NgException ("mesh file not found");
       }
 
+    int rank = GetCommunicator().Rank();
+    int ntasks = GetCommunicator().Size();
+    
     char str[100];
     int i, n;
 
@@ -1119,7 +1102,7 @@ namespace netgen
         if ( strcmp (str, "bcnames" ) == 0 )
           {
             infile >> n;
-            Array<int,0> bcnrs(n);
+            NgArray<int,0> bcnrs(n);
             SetNBCNames(n);
             for ( i = 1; i <= n; i++ )
               {
@@ -1160,7 +1143,7 @@ namespace netgen
 	if ( strcmp (str, "cd2names" ) == 0)
 	  {
 	    infile >> n;
-	    Array<int,0> cd2nrs(n);
+	    NgArray<int,0> cd2nrs(n);
 	    SetNCD2Names(n);
 	    for( i=1; i<=n; i++)
 	      {
@@ -1316,7 +1299,8 @@ namespace netgen
     archive & volelements;
     archive & segments;
     archive & facedecoding;
-    archive & materials & bcnames & cd2names;
+    archive & materials & bcnames & cd2names & cd3names;
+    archive & numvertices;
 
     archive & *ident;
 
@@ -1612,9 +1596,11 @@ namespace netgen
 
   void Mesh :: BuildBoundaryEdges(void)
   {
-    delete boundaryedges;
+    static Timer t("Mesh::BuildBoundaryEdges"); RegionTimer reg(t);
+    
+    // delete boundaryedges;
 
-    boundaryedges = new INDEX_2_CLOSED_HASHTABLE<int>
+    boundaryedges = make_unique<INDEX_2_CLOSED_HASHTABLE<int>>
       (3 * (GetNSE() + GetNOpenElements()) + GetNSeg() + 1);
 
 
@@ -1680,16 +1666,20 @@ namespace netgen
 
   void Mesh :: CalcSurfacesOfNode ()
   {
-    static Timer t("Mesh::CalcSurfacesOfNode"); RegionTimer reg (t);    
+    static Timer t("Mesh::CalcSurfacesOfNode"); RegionTimer reg (t);
+    static Timer tn2se("Mesh::CalcSurfacesOfNode - surf on node");     
+    static Timer tht("Mesh::CalcSurfacesOfNode - surfelementht"); 
     // surfacesonnode.SetSize (GetNP());
     TABLE<int,PointIndex::BASE> surfacesonnode(GetNP());
 
-    delete boundaryedges;
-    boundaryedges = NULL;
+    // delete boundaryedges;
+    // boundaryedges = NULL;
+    boundaryedges = nullptr;
 
-    delete surfelementht;
+    // delete surfelementht;
+    // surfelementht = nullptr;
     surfelementht = nullptr;
-    delete segmentht;
+    // delete segmentht;
 
     /*
       surfelementht = new INDEX_3_HASHTABLE<int> (GetNSE()/4 + 1);
@@ -1697,20 +1687,29 @@ namespace netgen
     */
 
     if (dimension == 3)
-      surfelementht = new INDEX_3_CLOSED_HASHTABLE<int> (3*GetNSE() + 1);
-    segmentht = new INDEX_2_CLOSED_HASHTABLE<int> (3*GetNSeg() + 1);
+      surfelementht = make_unique<INDEX_3_CLOSED_HASHTABLE<int>> (3*GetNSE() + 1);
+    segmentht = make_unique<INDEX_2_CLOSED_HASHTABLE<int>> (3*GetNSeg() + 1);
 
+    tn2se.Start();
     if (dimension == 3)
+      /*
     for (SurfaceElementIndex sei = 0; sei < GetNSE(); sei++)
       {
         const Element2d & sel = surfelements[sei];
+      */
+      for (const Element2d & sel : surfelements)
+        {
         if (sel.IsDeleted()) continue;
 
         int si = sel.GetIndex();
 
+        /*
         for (int j = 0; j < sel.GetNP(); j++)
           {
             PointIndex pi = sel[j];
+        */
+        for (PointIndex pi : sel.PNums())
+          {
             if (!surfacesonnode[pi].Contains(si))
               surfacesonnode.Add (pi, si);
             /*
@@ -1743,7 +1742,9 @@ namespace netgen
 
       surfelementht -> AllocateElements();
     */
-
+    tn2se.Stop();
+    
+    tht.Start();
     if (dimension==3)
     for (SurfaceElementIndex sei = 0; sei < GetNSE(); sei++)
       {
@@ -1757,14 +1758,20 @@ namespace netgen
         i3.Sort();
         surfelementht -> Set (i3, sei);   // war das wichtig ???    sel.GetIndex());
       }
-
+    tht.Stop();
+    
     // int np = GetNP();
 
     if (dimension == 3)
       {
+        static Timer t("Mesh::CalcSurfacesOfNode, pointloop"); RegionTimer reg (t);            
+        /*
         for (PointIndex pi = points.Begin(); pi < points.End(); pi++)
           points[pi].SetType (INNERPOINT);
-
+        */
+        for (auto & p : points)
+          p.SetType (INNERPOINT);
+        
         if (GetNFD() == 0) 
           {
             for (SurfaceElementIndex sei = 0; sei < GetNSE(); sei++)
@@ -1799,9 +1806,13 @@ namespace netgen
           }
       }
 
+    /*
     for (int i = 0; i < segments.Size(); i++)
       {
         const Segment & seg = segments[i];
+    */
+    for (const Segment & seg : segments)
+      {
         for (int j = 1; j <= 2; j++)
           {
             PointIndex hi = (j == 1) ? seg[0] : seg[1];
@@ -1846,8 +1857,8 @@ namespace netgen
       }
   }
 
-
-  void Mesh :: FixPoints (const BitArray & fixpoints)
+  // NgBitArray base is PointIndex::BASE ... 
+  void Mesh :: FixPoints (const NgBitArray & fixpoints)
   {
     if (fixpoints.Size() != GetNP())
       {
@@ -1855,26 +1866,66 @@ namespace netgen
         return;
       }
     int np = GetNP();
+    /*
     for (int i = 1; i <= np; i++)
       if (fixpoints.Test(i))
         {
           points.Elem(i).SetType (FIXEDPOINT);
         }
+    */
+    for (PointIndex pi : points.Range())
+      if (fixpoints.Test(pi))
+        points[pi].SetType(FIXEDPOINT);
   }
 
 
   void Mesh :: FindOpenElements (int dom)
   {
     static Timer t("Mesh::FindOpenElements"); RegionTimer reg (t);
+    static Timer t_table("Mesh::FindOpenElements - build table"); 
+    static Timer t_pointloop("Mesh::FindOpenElements - pointloop"); 
 
     int np = GetNP();
     int ne = GetNE();
     int nse = GetNSE();
+    
+    t_table.Start();
 
-    Array<int,PointIndex::BASE> numonpoint(np);
+    TableCreator<ElementIndex, PointIndex> creator(np);
 
+    for ( ; !creator.Done(); creator++)
+      // for (ElementIndex ei : Range(VolumeElements()))
+      ParallelFor
+        (Range(VolumeElements()), [&] (ElementIndex ei)
+         {
+           const Element & el = (*this)[ei];
+           if (dom == 0 || dom == el.GetIndex())
+             {
+               if (el.GetNP() == 4)
+                 {
+                   INDEX_4 i4(el[0], el[1], el[2], el[3]);
+                   i4.Sort();
+                   creator.Add (PointIndex(i4.I1()), ei);
+                   creator.Add (PointIndex(i4.I2()), ei);
+                 }
+               else
+                 {
+                   for (PointIndex pi : el.PNums())
+                     creator.Add(pi, ei);
+                 }
+             }
+         });
+    
+    auto elsonpoint = creator.MoveTable();
+
+    ParallelFor (Range(elsonpoint), [&] (auto i)
+         {
+           QuickSort(elsonpoint[i]);
+         });
+           
+    NgArray<int,PointIndex::BASE> numonpoint(np);
+    /*
     numonpoint = 0;
-
     for (ElementIndex ei = 0; ei < ne; ei++)
       {
         const Element & el = (*this)[ei];
@@ -1911,12 +1962,13 @@ namespace netgen
                 elsonpoint.Add (el[j], ei);
           }
       }
+    */
+    t_table.Stop();
 
 
-    Array<char, 1> hasface(GetNFD());
+    NgArray<bool, 1> hasface(GetNFD());
 
-    int i;
-    for (i = 1; i <= GetNFD(); i++)
+    for (int i = 1; i <= GetNFD(); i++)
       {
         int domin = GetFaceDescriptor(i).DomainIn();
         int domout = GetFaceDescriptor(i).DomainOut();
@@ -1985,24 +2037,26 @@ namespace netgen
       }
 
 
-    int ii;
-    PointIndex pi;
-    SurfaceElementIndex sei;
+    // PointIndex pi;
+    // SurfaceElementIndex sei;
     // Element2d hel;
 
-
-    INDEX_3_CLOSED_HASHTABLE<INDEX_2> faceht(100);   
+    struct tval { int index; PointIndex p4; };
     openelements.SetSize(0);
+    
+    t_pointloop.Start();
 
-    for (PointIndex pi = points.Begin(); pi < points.End(); pi++)
+    /*
+    INDEX_3_CLOSED_HASHTABLE<tval> faceht(100);
+    
+    for (PointIndex pi : points.Range())
       if (selsonpoint[pi].Size()+elsonpoint[pi].Size())
         {
           faceht.SetSize (2 * selsonpoint[pi].Size() + 4 * elsonpoint[pi].Size());
 
-          FlatArray<SurfaceElementIndex> row = selsonpoint[pi];
-          for (ii = 0; ii < row.Size(); ii++)
+          for (SurfaceElementIndex sei : selsonpoint[pi])
             {
-              Element2d hel = SurfaceElement(row[ii]);
+              Element2d hel = SurfaceElement(sei);
               if (hel.GetType() == TRIG6) hel.SetType(TRIG);
               int ind = hel.GetIndex();	  
 
@@ -2013,10 +2067,11 @@ namespace netgen
                   if (hel.PNum(1) == pi)
                     {
                       INDEX_3 i3(hel[0], hel[1], hel[2]);
-                      INDEX_2 i2 (GetFaceDescriptor(ind).DomainIn(), 
-                                  (hel.GetNP() == 3) 
-                                  ? PointIndex (PointIndex::BASE-1)
-                                  : hel.PNum(4));
+                      tval i2;
+                      i2.index = GetFaceDescriptor(ind).DomainIn();
+                      i2.p4 = (hel.GetNP() == 3)
+                            ? PointIndex (PointIndex::INVALID)
+                      : hel.PNum(4);
                       faceht.Set (i3, i2);
                     }
                 }
@@ -2028,20 +2083,19 @@ namespace netgen
                   if (hel.PNum(1) == pi)
                     {
                       INDEX_3 i3(hel[0], hel[1], hel[2]);
-                      INDEX_2 i2 (GetFaceDescriptor(ind).DomainOut(), 
-                                  (hel.GetNP() == 3) 
-                                  ? PointIndex (PointIndex::BASE-1)
-                                  : hel.PNum(4));
+                      tval i2;
+                      i2.index = GetFaceDescriptor(ind).DomainOut();
+                      i2.p4 = (hel.GetNP() == 3)
+                        ? PointIndex (PointIndex::INVALID)
+                        : hel.PNum(4);
                       faceht.Set (i3, i2);
                     }
                 }
             }
 
-
-          FlatArray<ElementIndex> rowel = elsonpoint[pi];
-          for (ii = 0; ii < rowel.Size(); ii++)
+          for (ElementIndex ei : elsonpoint[pi])
             {
-              const Element & el = VolumeElement(rowel[ii]);
+              const Element & el = VolumeElement(ei);
 
               if (dom == 0 || el.GetIndex() == dom)
                 {
@@ -2058,15 +2112,15 @@ namespace netgen
 
                           if (faceht.Used (i3))
                             {
-                              INDEX_2 i2 = faceht.Get(i3);
-                              if (i2.I1() == el.GetIndex())
+                              tval i2 = faceht.Get(i3);
+                              if (i2.index == el.GetIndex())
                                 {
-                                  i2.I1() = PointIndex::BASE-1;
+                                  i2.index = PointIndex::BASE-1;
                                   faceht.Set (i3, i2);
                                 }
                               else
                                 {
-                                  if (i2.I1() == 0)
+                                  if (i2.index == 0)
                                     {
                                       PrintSysError ("more elements on face");
                                       (*testout)  << "more elements on face!!!" << endl;
@@ -2084,41 +2138,175 @@ namespace netgen
                               hel.Invert();
                               hel.NormalizeNumbering();
                               INDEX_3 i3(hel[0], hel[1], hel[2]);
-                              INDEX_2 i2(el.GetIndex(), 
-                                         (hel.GetNP() == 3) 
-                                         ? PointIndex (PointIndex::BASE-1)
-                                         : hel[3]);
+                              
+                              tval i2;
+                              i2.index = el.GetIndex();
+                              i2.p4 = (hel.GetNP() == 3)
+                                ? PointIndex (PointIndex::INVALID)
+                                : hel[3];
                               faceht.Set (i3, i2);
                             }
                         }
                     }
                 }
             }
+          
           for (int i = 0; i < faceht.Size(); i++)
             if (faceht.UsedPos (i))
               {
                 INDEX_3 i3;
-                INDEX_2 i2;
+                //INDEX_2 i2;
+                tval i2;
                 faceht.GetData (i, i3, i2);
-                if (i2.I1() != PointIndex::BASE-1)
+                if (i2.index != PointIndex::BASE-1)
                   {
-                    // Element2d tri;
-                    // tri.SetType ( (i2.I2() == PointIndex::BASE-1) ? TRIG : QUAD);
-                    Element2d tri ( (i2.I2() == PointIndex::BASE-1) ? TRIG : QUAD);
+                    Element2d tri ( (i2.p4 == PointIndex::BASE-1) ? TRIG : QUAD);
                     for (int l = 0; l < 3; l++)
                       tri[l] = i3.I(l+1);
-                    tri.PNum(4) = i2.I2();
-                    tri.SetIndex (i2.I1());
-
-                    //	tri.Invert();
-
+                    tri.PNum(4) = i2.p4;
+                    tri.SetIndex (i2.index);
                     openelements.Append (tri);
                   }
               }
         }
 
+    */
+
+    size_t numtasks = ngcore::TaskManager::GetNumThreads();
+    Array<Array<Element2d>> thread_openelements(numtasks);
+    ParallelJob
+      ( [&](TaskInfo & ti)
+      {
+        auto myrange = points.Range().Split(ti.task_nr, ti.ntasks);
+        INDEX_3_CLOSED_HASHTABLE<tval> faceht(100);        
+        for (PointIndex pi : myrange)
+          if (selsonpoint[pi].Size()+elsonpoint[pi].Size())
+            {
+              faceht.SetSize (2 * selsonpoint[pi].Size() + 4 * elsonpoint[pi].Size());
+
+              for (SurfaceElementIndex sei : selsonpoint[pi])
+                {
+                  Element2d hel = SurfaceElement(sei);
+                  if (hel.GetType() == TRIG6) hel.SetType(TRIG);
+                  int ind = hel.GetIndex();	  
+
+                  if (GetFaceDescriptor(ind).DomainIn() && 
+                      (dom == 0 || dom == GetFaceDescriptor(ind).DomainIn()) )
+                    {
+                      hel.NormalizeNumbering();
+                      if (hel.PNum(1) == pi)
+                        {
+                          INDEX_3 i3(hel[0], hel[1], hel[2]);
+                          tval i2;
+                          i2.index = GetFaceDescriptor(ind).DomainIn();
+                          i2.p4 = (hel.GetNP() == 3)
+                            ? PointIndex (PointIndex::INVALID)
+                            : hel.PNum(4);
+                          faceht.Set (i3, i2);
+                        }
+                    }
+                  if (GetFaceDescriptor(ind).DomainOut() &&
+                      (dom == 0 || dom == GetFaceDescriptor(ind).DomainOut()) )
+                    {
+                      hel.Invert();
+                      hel.NormalizeNumbering();
+                      if (hel.PNum(1) == pi)
+                        {
+                          INDEX_3 i3(hel[0], hel[1], hel[2]);
+                          tval i2;
+                          i2.index = GetFaceDescriptor(ind).DomainOut();
+                          i2.p4 = (hel.GetNP() == 3)
+                            ? PointIndex (PointIndex::INVALID)
+                            : hel.PNum(4);
+                          faceht.Set (i3, i2);
+                        }
+                    }
+                }
+              
+              for (ElementIndex ei : elsonpoint[pi])
+                {
+                  const Element & el = VolumeElement(ei);
+                  
+                  if (dom == 0 || el.GetIndex() == dom)
+                    {
+                      for (int j = 1; j <= el.GetNFaces(); j++)
+                        {
+                          Element2d hel(TRIG);
+                          el.GetFace (j, hel);
+                          hel.Invert();
+                          hel.NormalizeNumbering();
+                          
+                          if (hel[0] == pi)
+                            {
+                              INDEX_3 i3(hel[0], hel[1], hel[2]);
+                              
+                              if (faceht.Used (i3))
+                                {
+                                  tval i2 = faceht.Get(i3);
+                                  if (i2.index == el.GetIndex())
+                                    {
+                                      i2.index = PointIndex::BASE-1;
+                                      faceht.Set (i3, i2);
+                                    }
+                                  else
+                                    {
+                                      if (i2.index == 0)
+                                        {
+                                          PrintSysError ("more elements on face");
+                                          (*testout)  << "more elements on face!!!" << endl;
+                                          (*testout) << "el = " << el << endl;
+                                          (*testout) << "hel = " << hel << endl;
+                                          (*testout) << "face = " << i3 << endl;
+                                          (*testout) << "points = " << endl;
+                                          for (int jj = 1; jj <= 3; jj++)
+                                            (*testout) << "p = " << Point(i3.I(jj)) << endl;
+                                        }
+                                    }
+                                }
+                              else
+                                {
+                                  hel.Invert();
+                                  hel.NormalizeNumbering();
+                                  INDEX_3 i3(hel[0], hel[1], hel[2]);
+                                  
+                                  tval i2;
+                                  i2.index = el.GetIndex();
+                                  i2.p4 = (hel.GetNP() == 3)
+                                    ? PointIndex (PointIndex::INVALID)
+                                    : hel[3];
+                                  faceht.Set (i3, i2);
+                                }
+                            }
+                        }
+                    }
+                }
+              
+              for (int i = 0; i < faceht.Size(); i++)
+                if (faceht.UsedPos (i))
+                  {
+                    INDEX_3 i3;
+                    tval i2;
+                    faceht.GetData (i, i3, i2);
+                    if (i2.index != PointIndex::BASE-1)
+                      {
+                        Element2d tri ( (i2.p4 == PointIndex::BASE-1) ? TRIG : QUAD);
+                        for (int l = 0; l < 3; l++)
+                          tri[l] = i3.I(l+1);
+                        tri.PNum(4) = i2.p4;
+                        tri.SetIndex (i2.index);
+                        thread_openelements[ti.task_nr].Append (tri);
+                      }
+                  }
+            }});
+
+    for (auto & a : thread_openelements)
+      for (auto & el : a)
+        openelements.Append (el);
+    
+    t_pointloop.Stop();
+    
     int cnt3 = 0;
-    for (i = 0; i < openelements.Size(); i++)
+    for (int i = 0; i < openelements.Size(); i++)
       if (openelements[i].GetNP() == 3)
         cnt3++;
 
@@ -2152,7 +2340,8 @@ namespace netgen
         for (int j = 1; j <= 3; j++)
           {
             PointIndex pi = sel.PNum(j);
-            if (pi < points.End())
+            // if (pi < points.End())
+            if (pi < *points.Range().end())
               points[pi].SetType (FIXEDPOINT);
           }
       }
@@ -2193,9 +2382,9 @@ namespace netgen
     // int i, j, k;
 
     // new version, general elements
-    // hash index: pnum1-2
-    // hash data : surfnr,  surfel-nr (pos) or segment nr(neg)
-    INDEX_2_HASHTABLE<INDEX_2> faceht(4 * GetNSE()+GetNSeg()+1);   
+    // hash index: pnum1-2, surfnr
+    // hash data : surfel-nr (pos) or segment nr(neg)
+    INDEX_3_HASHTABLE<int> faceht(4 * GetNSE()+GetNSeg()+1);   
 
     PrintMessage (5, "Test Opensegments");
     for (int i = 1; i <= GetNSeg(); i++)
@@ -2204,8 +2393,8 @@ namespace netgen
 
         if (surfnr == 0 || seg.si == surfnr)
           {
-            INDEX_2 key(seg[0], seg[1]);
-            INDEX_2 data(seg.si, -i);
+            INDEX_3 key(seg[0], seg[1], seg.si);
+            int data = -i;
 
             if (faceht.Used (key))
               {
@@ -2218,6 +2407,8 @@ namespace netgen
       }
 
 
+    /*
+      // not possible with surfnr as hash-index
     for (int i = 1; i <= GetNSeg(); i++)
       {
         const Segment & seg = LineSegment (i);
@@ -2232,7 +2423,9 @@ namespace netgen
               }
           }
       }
+    */
 
+    
     // bool buggy = false;
     // ofstream bout("buggy.out");
 
@@ -2245,15 +2438,18 @@ namespace netgen
           {
             for (int j = 1; j <= el.GetNP(); j++)
               {
-                INDEX_2 seg (el.PNumMod(j), el.PNumMod(j+1));
-                INDEX_2 data;
+                INDEX_3 seg (el.PNumMod(j), el.PNumMod(j+1), el.GetIndex());
+                int data;
 
                 if (seg.I1() < PointIndex::BASE || seg.I2() < PointIndex::BASE)
                   cerr << "seg = " << seg << endl;
 
                 if (faceht.Used(seg))
                   {
+                    faceht.Set (seg, 0);
+                    /*
                     data = faceht.Get(seg);
+                    
                     if (data.I1() == el.GetIndex())
                       {
                         data.I1() = 0;
@@ -2264,46 +2460,16 @@ namespace netgen
 			// buggy = true;
                         PrintWarning ("hash table si not fitting for segment: ",
                                        seg.I1(), "-", seg.I2(), " other = ",
-                                       data.I2());
-			// cout << "me: index = " << el.GetIndex() << ", el = " << el << endl;
-
-			/*
-			bout << "has index = " << seg << endl;
-			bout << "hash value = " << faceht.HashValue (seg) << endl;
-
-			if (data.I2() > 0)
-			  {
-			    int io = data.I2();
-			    cout << "other trig: index = " << SurfaceElement(io).GetIndex()
-				 << ", el = " << SurfaceElement(io) << endl;
-			  }
-			else
-			  {
-			    cout << "other seg " << -data.I2() << ", si = " << data.I1() << endl;
-			  }
-
-			
-			bout << "me: index = " << el.GetIndex() << ", el = " << el << endl;
-			if (data.I2() > 0)
-			  {
-			    int io = data.I2();
-			    bout << "other trig: index = " << SurfaceElement(io).GetIndex()
-				 << ", el = " << SurfaceElement(io) << endl;
-			  } 
-			else
-			  {
-			    bout << "other seg " << -data.I2() << ", si = " << data.I1() << endl;
-			  }
-			*/
+                                      data.I2(), ", surfnr = ", surfnr);
                       }
+                    */
                   }
                 else
                   {
                     Swap (seg.I1(), seg.I2());
-                    data.I1() = el.GetIndex();
-                    data.I2() = i;
-
-                    faceht.Set (seg, data);
+                    // data.I1() = el.GetIndex();
+                    // data.I2() = i;
+                    faceht.Set (seg, i);
                   }
               }
           }
@@ -2339,21 +2505,21 @@ namespace netgen
     for (int i = 1; i <= faceht.GetNBags(); i++)
       for (int j = 1; j <= faceht.GetBagSize(i); j++)
         {
-          INDEX_2 i2;
-          INDEX_2 data;
+          INDEX_3 i2;
+          int data;
           faceht.GetData (i, j, i2, data);
-          if (data.I1())  // surfnr
+          if (data)  // surfnr
             {
               Segment seg;
               seg[0] = i2.I1();
               seg[1] = i2.I2();
-              seg.si = data.I1();
+              seg.si = i2.I3();
 
               // find geomdata:
-              if (data.I2() > 0)
+              if (data > 0)
                 {
                   // segment due to triangle
-                  const Element2d & el = SurfaceElement (data.I2());
+                  const Element2d & el = SurfaceElement (data);
                   for (int k = 1; k <= el.GetNP(); k++)
                     {
                       if (seg[0] == el.PNum(k))
@@ -2367,7 +2533,7 @@ namespace netgen
               else
                 {
                   // segment due to line
-                  const Segment & lseg = LineSegment (-data.I2());
+                  const Segment & lseg = LineSegment (-data);
                   seg.geominfo[0] = lseg.geominfo[0];
                   seg.geominfo[1] = lseg.geominfo[1];
 
@@ -2408,9 +2574,13 @@ namespace netgen
       ptyps.Elem(seg[1]) = EDGEPOINT;
       }
     */
+    /*
     for (int i = 1; i <= points.Size(); i++)
       points.Elem(i).SetType(SURFACEPOINT);
-
+    */
+    for (auto & p : points)
+      p.SetType (SURFACEPOINT);
+    
     for (int i = 1; i <= GetNSeg(); i++)
       {
         const Segment & seg = LineSegment (i);
@@ -2458,7 +2628,7 @@ namespace netgen
     int np = GetNP();
 
     FindOpenSegments();
-    BitArray frontpoints(np+1);  // for 0- and 1-based
+    NgBitArray frontpoints(np+1);  // for 0- and 1-based
     frontpoints.Clear();
     
     for (int i = 1; i <= GetNOpenSegments(); i++)
@@ -2470,7 +2640,7 @@ namespace netgen
 
     for (int i = 1; i <= GetNSE(); i++)
       {
-        Element2d & sel = surfelements.Elem(i);
+        Element2d & sel = surfelements[i-1];
         bool remove = false;
         for (int j = 1; j <= sel.GetNP(); j++)
           if (frontpoints.Test(sel.PNum(j)))
@@ -2481,9 +2651,9 @@ namespace netgen
 
     for (int i = surfelements.Size(); i >= 1; i--)
       {
-        if (!surfelements.Elem(i).PNum(1).IsValid())
+        if (!surfelements[i-1].PNum(1).IsValid())
           {
-            surfelements.Elem(i) = surfelements.Last();
+            surfelements[i-1] = surfelements.Last();
             surfelements.DeleteLast();
           }
       }
@@ -2513,7 +2683,7 @@ namespace netgen
     int i, j, k;
     PointIndex pi;
     const int large = 9999;
-    Array<int,PointIndex::BASE> dist(GetNP());
+    NgArray<int,PointIndex::BASE> dist(GetNP());
 
     dist = large;
 
@@ -2585,8 +2755,7 @@ namespace netgen
     Point<3> pmin2 = c - Vec<3> (d, d, d);
     Point<3> pmax2 = c + Vec<3> (d, d, d);
 
-    delete lochfunc;
-    lochfunc = new LocalH (pmin2, pmax2, grading, dimension);
+    lochfunc = make_unique<LocalH> (pmin2, pmax2, grading, dimension);
   }
 
   void Mesh :: RestrictLocalH (const Point3d & p, double hloc)
@@ -2646,7 +2815,7 @@ namespace netgen
       return 1e10;
   }
 
-  void Mesh :: SetMaxHDomain (const Array<double> & mhd)
+  void Mesh :: SetMaxHDomain (const NgArray<double> & mhd)
   {
     maxhdomain.SetSize(mhd.Size());
     for (int i = 1; i <= mhd.Size(); i++)
@@ -2940,12 +3109,12 @@ namespace netgen
                   pi4++;
                 pi4 = elother.PNum(pi4);
 
-                double rad = ComputeCylinderRadius (Point (i2.I1()),
-                                                    Point (i2.I2()),
-                                                    Point (pi3), 
-                                                    Point (pi4));
+                double rad = ComputeCylinderRadius (Point (PointIndex(i2.I1())),
+                                                    Point (PointIndex(i2.I2())),
+                                                    Point (PointIndex(pi3)),
+                                                    Point (PointIndex(pi4)));
 
-                RestrictLocalHLine (Point(i2.I1()), Point(i2.I2()), rad/elperr);
+                RestrictLocalHLine (Point(PointIndex(i2.I1())), Point(PointIndex(i2.I2())), rad/elperr);
 
 
                 /*	      
@@ -2983,8 +3152,8 @@ namespace netgen
     int nseg = GetNSeg();
     int nse = GetNSE();
 
-    Array<Vec3d> normals(np);
-    BitArray linepoint(np);
+    NgArray<Vec3d> normals(np);
+    NgBitArray linepoint(np);
 
     linepoint.Clear();
     for (i = 1; i <= nseg; i++)
@@ -3163,7 +3332,8 @@ namespace netgen
         pmin = Point3d (1e10, 1e10, 1e10);
         pmax = Point3d (-1e10, -1e10, -1e10); 
 
-        for (PointIndex pi = points.Begin(); pi < points.End(); pi++)
+        // for (PointIndex pi = points.Begin(); pi < points.End(); pi++)
+        for (PointIndex pi : points.Range())
           {
             pmin.SetToMin ( (*this) [pi] );
             pmax.SetToMax ( (*this) [pi] );
@@ -3212,7 +3382,8 @@ namespace netgen
     pmin = Point3d (1e10, 1e10, 1e10);
     pmax = Point3d (-1e10, -1e10, -1e10); 
 
-    for (PointIndex pi = points.Begin(); pi < points.End(); pi++)
+    // for (PointIndex pi = points.Begin(); pi < points.End(); pi++)
+    for (PointIndex pi : points.Range())
       if (points[pi].Type() <= ptyp)
         {
           pmin.SetToMin ( (*this) [pi] );
@@ -3225,9 +3396,9 @@ namespace netgen
 
   double Mesh :: ElementError (int eli, const MeshingParameters & mp) const
   {
-    const Element & el = volelements.Get(eli);
-    return CalcTetBadness (points.Get(el[0]), points.Get(el[1]),
-                           points.Get(el[2]), points.Get(el[3]), -1, mp);
+    const Element & el = volelements[eli-1];
+    return CalcTetBadness (points[el[0]], points[el[1]],
+                           points[el[2]], points[el[3]], -1, mp);
   }
 
   void Mesh :: AddLockedPoint (PointIndex pi)
@@ -3245,10 +3416,11 @@ namespace netgen
   void Mesh :: Compress ()
   {
     static Timer t("Mesh::Compress"); RegionTimer reg(t);
+    NgLock lock(mutex);
+    lock.Lock();
     
-    Array<PointIndex,PointIndex::BASE,PointIndex> op2np(GetNP());
-    Array<MeshPoint> hpoints;
-    BitArrayChar<PointIndex::BASE> pused(GetNP());
+    Array<PointIndex,PointIndex> op2np(GetNP());
+    Array<bool, PointIndex> pused(GetNP());
 
     /*
       (*testout) << "volels: " << endl;
@@ -3265,7 +3437,7 @@ namespace netgen
       if (volelements[i][0] <= PointIndex::BASE-1 ||
           volelements[i].IsDeleted())
         {
-          volelements.Delete(i);
+          volelements.DeleteElement(i);
           i--;
         }
 
@@ -3273,52 +3445,76 @@ namespace netgen
     for (int i = 0; i < surfelements.Size(); i++)
       if (surfelements[i].IsDeleted())
         {
-          surfelements.Delete(i);
+          surfelements.DeleteElement(i);
           i--;
         }
 
     for (int i = 0; i < segments.Size(); i++)
       if (segments[i][0] <= PointIndex::BASE-1)
         {
-          segments.Delete(i);
+          segments.DeleteElement(i);
           i--;
         }
 
     for(int i=0; i < segments.Size(); i++)
       if(segments[i].edgenr < 0)
-          segments.Delete(i--);
+          segments.DeleteElement(i--);
 
-    pused.Clear();
+    pused = false;
+    /*
     for (int i = 0; i < volelements.Size(); i++)
       {
         const Element & el = volelements[i];
         for (int j = 0; j < el.GetNP(); j++)
-          pused.Set (el[j]);
+          pused[el[j]] = true;
       }
+    */
+    /*
+    for (const Element & el : volelements)
+      for (PointIndex pi : el.PNums())
+        pused[pi] = true;
+    */
 
+    ParallelForRange
+      (volelements.Range(), [&] (auto myrange)
+       {
+         for (const Element & el : volelements.Range(myrange))
+           for (PointIndex pi : el.PNums())
+             pused[pi] = true;
+       });
+
+    /*
     for (int i = 0; i < surfelements.Size(); i++)
       {
         const Element2d & el = surfelements[i];
         for (int j = 0; j < el.GetNP(); j++)
-          pused.Set (el[j]);
+          pused[el[j]] = true;
       }
-
+    */
+    ParallelForRange
+      (surfelements.Range(), [&] (auto myrange)
+       {
+         for (const Element2d & el : surfelements.Range(myrange))
+           for (PointIndex pi : el.PNums())
+             pused[pi] = true;
+       });
+    
     for (int i = 0; i < segments.Size(); i++)
       {
         const Segment & seg = segments[i];
-        pused.Set (seg[0]);
-        pused.Set (seg[1]);
+        for (int j = 0; j < seg.GetNP(); j++)
+          pused[seg[j]] = true;
       }
 
     for (int i = 0; i < openelements.Size(); i++)
       {
         const Element2d & el = openelements[i];
         for (int j = 0; j < el.GetNP(); j++)
-          pused.Set(el[j]);
+          pused[el[j]] = true;
       }
 
     for (int i = 0; i < lockedpoints.Size(); i++)
-      pused.Set (lockedpoints[i]);
+      pused[lockedpoints[i]] = true;
 
 
     /*
@@ -3335,44 +3531,65 @@ namespace netgen
     */
     //  pused.Set();
 
-
-    int npi = PointIndex::BASE-1;
-
-    for (PointIndex pi = points.Begin(); pi < points.End(); pi++)
-      if (pused.Test(pi))
-        {
-          npi++;
-          op2np[pi] = npi;
-          hpoints.Append (points[pi]);
-        }
-      else
-        op2np[pi] = -1;
-
-
-
-    points.SetSize(0);
-    for (int i = 0; i < hpoints.Size(); i++)
-      points.Append (hpoints[i]);
-
+    
+    {
+      Array<MeshPoint> hpoints;
+      int npi = PointIndex::BASE;
+      for (PointIndex pi : points.Range())
+        if (pused[pi])
+          {
+            op2np[pi] = npi;
+            npi++;
+            hpoints.Append (points[pi]);
+          }
+        else
+          {
+            op2np[pi].Invalidate(); 
+          }
+      
+      points.SetSize(0);
+      for (int i = 0; i < hpoints.Size(); i++)
+        points.Append (hpoints[i]);
+    }
+    
+    /*
     for (int i = 1; i <= volelements.Size(); i++)
       {
         Element & el = VolumeElement(i);
         for (int j = 0; j < el.GetNP(); j++)
           el[j] = op2np[el[j]];
       }
+    */
+    ParallelForRange
+      (volelements.Range(), [&] (auto myrange)
+       {
+         for (Element & el : volelements.Range(myrange))
+           for (PointIndex & pi : el.PNums())
+             pi = op2np[pi];
+       });
 
+    /*
     for (int i = 1; i <= surfelements.Size(); i++)
       {
         Element2d & el = SurfaceElement(i);
         for (int j = 0; j < el.GetNP(); j++)
           el[j] = op2np[el[j]];
       }
+    */
+    ParallelForRange
+      (surfelements.Range(), [&] (auto myrange)
+       {
+         for (Element2d & el : surfelements.Range(myrange))
+           for (PointIndex & pi : el.PNums())
+             pi = op2np[pi];
+       });
 
+    
     for (int i = 0; i < segments.Size(); i++)
       {
         Segment & seg = segments[i];
-        seg[0] = op2np[seg[0]];
-        seg[1] = op2np[seg[1]];
+        for (int j = 0; j < seg.GetNP(); j++)
+          seg[j] = op2np[seg[j]];
       }
 
     for (int i = 1; i <= openelements.Size(); i++)
@@ -3401,6 +3618,7 @@ namespace netgen
 
     //  FindOpenElements();
     timestamp = NextTimeStamp();
+    lock.UnLock();
   }
 
   void Mesh :: OrderElements()
@@ -3515,130 +3733,104 @@ namespace netgen
   {
     static Timer t("Mesh::CheckOverlappingBoundary"); RegionTimer reg(t);
     
-    int i, j, k;
-
     Point3d pmin, pmax;
     GetBox (pmin, pmax);
-    BoxTree<3> setree(pmin, pmax);
-    Array<int> inters;
+    BoxTree<3, SurfaceElementIndex> setree(pmin, pmax);
+    // NgArray<SurfaceElementIndex> inters;
 
     bool overlap = 0;
     bool incons_layers = 0;
 
+    for (Element2d & el : SurfaceElements())
+      el.badel = false;
 
-    for (i = 1; i <= GetNSE(); i++)
-      SurfaceElement(i).badel = 0;
-
-
-    for (i = 1; i <= GetNSE(); i++)
+    for (SurfaceElementIndex sei : Range(SurfaceElements()))
       {
-        const Element2d & tri = SurfaceElement(i);
+        const Element2d & tri = SurfaceElement(sei);
 
-        Point3d tpmin (Point(tri[0]));
-        Point3d tpmax (tpmin);
+        Box<3> box(Box<3>::EMPTY_BOX);
+        for (PointIndex pi : tri.PNums())
+          box.Add (Point(pi));
 
-        for (k = 1; k < tri.GetNP(); k++)
-          {
-            tpmin.SetToMin (Point (tri[k]));
-            tpmax.SetToMax (Point (tri[k]));
-          }
-        Vec3d diag(tpmin, tpmax);
-
-        tpmax = tpmax + 0.1 * diag;
-        tpmin = tpmin - 0.1 * diag;
-
-        setree.Insert (tpmin, tpmax, i);
+        box.Increase(1e-3*box.Diam());
+        setree.Insert (box, sei);
       }
 
-    for (i = 1; i <= GetNSE(); i++)
-      {
-        const Element2d & tri = SurfaceElement(i);
+    std::mutex m;
+    // for (SurfaceElementIndex sei : Range(SurfaceElements()))
+    ParallelForRange
+      (Range(SurfaceElements()), [&] (auto myrange)
+       {
+         for (SurfaceElementIndex sei : myrange)
+           {
+             const Element2d & tri = SurfaceElement(sei);
+             
+             Box<3> box(Box<3>::EMPTY_BOX);
+             for (PointIndex pi : tri.PNums())
+               box.Add (Point(pi));
+             
+             setree.GetFirstIntersecting
+               (box.PMin(), box.PMax(),
+                [&] (SurfaceElementIndex sej) 
+                {
+                  const Element2d & tri2 = SurfaceElement(sej);	  
+                  
+                  if ( (*this)[tri[0]].GetLayer() != (*this)[tri2[0]].GetLayer())
+                    return false;
+                  
+                  if ( (*this)[tri[0]].GetLayer() != (*this)[tri[1]].GetLayer() ||
+                       (*this)[tri[0]].GetLayer() != (*this)[tri[2]].GetLayer())
+                    {
+                      incons_layers = 1;
+                      cout << "inconsistent layers in triangle" << endl;
+                    }
+                  
+                  const netgen::Point<3> *trip1[3], *trip2[3];	  
+                  for (int k = 0; k < 3; k++)
+                    {
+                      trip1[k] = &Point (tri[k]);
+                      trip2[k] = &Point (tri2[k]);
+                    }
+                  
+                  if (IntersectTriangleTriangle (&trip1[0], &trip2[0]))
+                    {
+                      overlap = 1;
+                      lock_guard<std::mutex> guard(m);
+                      PrintWarning ("Intersecting elements " 
+                                    ,int(sei), " and ", int(sej));
+                      
+                      (*testout) << "Intersecting: " << endl;
+                      (*testout) << "openelement " << sei << " with open element " << sej << endl;
+                      
+                      cout << "el1 = " << tri << endl;
+                      cout << "el2 = " << tri2 << endl;
+                      cout << "layer1 = " <<  (*this)[tri[0]].GetLayer() << endl;
+                      cout << "layer2 = " <<  (*this)[tri2[0]].GetLayer() << endl;
+                      
+                      for (int k = 1; k <= 3; k++)
+                        (*testout) << tri.PNum(k) << "  ";
+                      (*testout) << endl;
+                      for (int k = 1; k <= 3; k++)
+                        (*testout) << tri2.PNum(k) << "  ";
+                      (*testout) << endl;
+                      
+                      for (int k = 0; k <= 2; k++)
+                        (*testout) << *trip1[k] << "   ";
+                      (*testout) << endl;
+                      for (int k = 0; k <= 2; k++)
+                        (*testout) << *trip2[k] << "   ";
+                      (*testout) << endl;
 
-        Point3d tpmin (Point(tri[0]));
-        Point3d tpmax (tpmin);
-
-        for (k = 1; k < tri.GetNP(); k++)
-          {
-            tpmin.SetToMin (Point (tri[k]));
-            tpmax.SetToMax (Point (tri[k]));
-          }
-
-        setree.GetIntersecting (tpmin, tpmax, inters);
-
-        for (j = 1; j <= inters.Size(); j++)
-          {
-            const Element2d & tri2 = SurfaceElement(inters.Get(j));	  
-
-            if ( (*this)[tri[0]].GetLayer() != (*this)[tri2[0]].GetLayer())
-              continue;
-
-            if ( (*this)[tri[0]].GetLayer() != (*this)[tri[1]].GetLayer() ||
-                 (*this)[tri[0]].GetLayer() != (*this)[tri[2]].GetLayer())
-              {
-                incons_layers = 1;
-                cout << "inconsistent layers in triangle" << endl;
-              }
-
-
-            const netgen::Point<3> *trip1[3], *trip2[3];	  
-            for (k = 1; k <= 3; k++)
-              {
-                trip1[k-1] = &Point (tri.PNum(k));
-                trip2[k-1] = &Point (tri2.PNum(k));
-              }
-
-            if (IntersectTriangleTriangle (&trip1[0], &trip2[0]))
-              {
-                overlap = 1;
-                PrintWarning ("Intersecting elements " 
-                              ,i, " and ", inters.Get(j));
-
-                (*testout) << "Intersecting: " << endl;
-                (*testout) << "openelement " << i << " with open element " << inters.Get(j) << endl;
-
-                cout << "el1 = " << tri << endl;
-                cout << "el2 = " << tri2 << endl;
-                cout << "layer1 = " <<  (*this)[tri[0]].GetLayer() << endl;
-                cout << "layer2 = " <<  (*this)[tri2[0]].GetLayer() << endl;
-
-
-                for (k = 1; k <= 3; k++)
-                  (*testout) << tri.PNum(k) << "  ";
-                (*testout) << endl;
-                for (k = 1; k <= 3; k++)
-                  (*testout) << tri2.PNum(k) << "  ";
-                (*testout) << endl;
-
-                for (k = 0; k <= 2; k++)
-                  (*testout) << *trip1[k] << "   ";
-                (*testout) << endl;
-                for (k = 0; k <= 2; k++)
-                  (*testout) << *trip2[k] << "   ";
-                (*testout) << endl;
-
-                (*testout) << "Face1 = " << GetFaceDescriptor(tri.GetIndex()) << endl;
-                (*testout) << "Face1 = " << GetFaceDescriptor(tri2.GetIndex()) << endl;
-
-                /*
-                  INDEX_3 i3(tri.PNum(1), tri.PNum(2), tri.PNum(3));
-                  i3.Sort();
-                  for (k = 1; k <= GetNSE(); k++)
-                  {
-                  const Element2d & el2 = SurfaceElement(k);
-                  INDEX_3 i3b(el2.PNum(1), el2.PNum(2), el2.PNum(3));
-                  i3b.Sort();
-                  if (i3 == i3b)
-                  {
-                  SurfaceElement(k).badel = 1;
-                  }
-                  }
-                */
-                SurfaceElement(i).badel = 1;
-                SurfaceElement(inters.Get(j)).badel = 1;
-              }
-          }
-      }
-
+                      (*testout) << "Face1 = " << GetFaceDescriptor(tri.GetIndex()) << endl;
+                      (*testout) << "Face1 = " << GetFaceDescriptor(tri2.GetIndex()) << endl;
+                      
+                      SurfaceElement(sei).badel = 1;
+                      SurfaceElement(sej).badel = 1;
+                    }
+                  return false;
+                });
+           }
+       });
     // bug 'fix'
     if (incons_layers) overlap = 0;
 
@@ -3675,9 +3867,54 @@ namespace netgen
     return 0;
   }
 
+  // Search for surface trigs with same vertices ( may happen for instance with close surfaces in stl geometies )
+  int Mesh :: FindIllegalTrigs ()
+  {
+    // Temporary table to store the vertex numbers of all triangles
+    INDEX_3_CLOSED_HASHTABLE<int> temp_tab(3*GetNSE() + 1);
+    size_t cnt = 0;
+    for (SurfaceElementIndex sei = 0; sei < GetNSE(); sei++)
+      {
+        const Element2d & sel = surfelements[sei];
+        if (sel.IsDeleted()) continue;
+
+        INDEX_3 i3(sel[0], sel[1], sel[2]);
+        i3.Sort();
+        if(temp_tab.Used(i3))
+          {
+            temp_tab.Set (i3, -1);
+            cnt++;
+          }
+        else
+          {
+            temp_tab.Set (i3, sei);
+          }
+      }
+
+    illegal_trigs = make_unique<INDEX_3_CLOSED_HASHTABLE<int>> (2*cnt+1);
+    for (SurfaceElementIndex sei = 0; sei < GetNSE(); sei++)
+      {
+        const Element2d & sel = surfelements[sei];
+        if (sel.IsDeleted()) continue;
+
+        INDEX_3 i3(sel[0], sel[1], sel[2]);
+        i3.Sort();
+        if(temp_tab.Get(i3)==-1)
+            illegal_trigs -> Set (i3, 1);
+      }
+    return cnt;
+  }
 
   bool Mesh :: LegalTrig (const Element2d & el) const
   {
+      if(illegal_trigs)
+      {
+          INDEX_3 i3 (el[0], el[1], el[2]);
+          i3.Sort();
+          if(illegal_trigs->Used(i3))
+              return false;
+      }
+
     return 1;
     if ( /* hp */ 1)  // needed for old, simple hp-refinement
       { 
@@ -3703,6 +3940,44 @@ namespace netgen
           return 0;
       }
     return 1;
+  }
+
+  double Mesh :: CalcTotalBad (const MeshingParameters & mp )
+  {
+    static Timer t("CalcTotalBad"); RegionTimer reg(t);
+    static constexpr int n_classes = 20;
+
+    double sum = 0;
+
+    tets_in_qualclass.SetSize(n_classes);
+    tets_in_qualclass = 0;
+
+    ParallelForRange( IntRange(volelements.Size()), [&] (auto myrange)
+       {
+         double local_sum = 0.0;
+         double teterrpow = mp.opterrpow;
+
+         std::array<int,n_classes> classes_local{};
+
+         for (auto i : myrange)
+           {
+             double elbad = pow (max2(CalcBad (points, volelements[i], 0, mp),1e-10), 1/teterrpow);
+
+             int qualclass = int (n_classes / elbad + 1);
+             if (qualclass < 1) qualclass = 1;
+             if (qualclass > n_classes) qualclass = n_classes;
+             classes_local[qualclass-1]++;
+
+             local_sum += elbad;
+           }
+
+         AtomicAdd(sum, local_sum);
+
+         for (auto i : Range(n_classes))
+             AsAtomic(tets_in_qualclass[i]) += classes_local[i];
+    });
+
+    return sum;
   }
 
 
@@ -3884,7 +4159,7 @@ namespace netgen
     int i, j;
     int nse = GetNSE();
 
-    BitArray used(nse);
+    NgBitArray used(nse);
     used.Clear();
     INDEX_2_HASHTABLE<int> edges(nse+1);
 
@@ -3909,7 +4184,7 @@ namespace netgen
             for (i = 1; i <= nse; i++)
               if (!used.Test(i))
                 {
-                  Element2d & el = surfelements.Elem(i);
+                  Element2d & el = surfelements[i-1];
                   int found = 0, foundrev = 0;
                   for (j = 1; j <= 3; j++)
                     {
@@ -4323,8 +4598,7 @@ namespace netgen
           
           PrintMessage (4, "Rebuild element searchtree");
           
-          delete elementsearchtree;
-          elementsearchtree = NULL;
+          elementsearchtree = nullptr;
           
           int ne = (dimension == 2) ? GetNSE() : GetNE();
           if (dimension == 3 && !GetNE() && GetNSE())
@@ -4336,14 +4610,21 @@ namespace netgen
                 {
                   Box<3> box (Box<3>::EMPTY_BOX);
                   for (SurfaceElementIndex sei = 0; sei < ne; sei++)
-                    box.Add (points[surfelements[sei].PNums()]);
+                    // box.Add (points[surfelements[sei].PNums()]);
+                    for (auto pi : surfelements[sei].PNums())
+                      box.Add (points[pi]);
                   
                   box.Increase (1.01 * box.Diam());
-                  elementsearchtree = new BoxTree<3> (box);
+                  elementsearchtree = make_unique<BoxTree<3>> (box);
                   
                   for (SurfaceElementIndex sei = 0; sei < ne; sei++)
                     {
-                      box.Set (points[surfelements[sei].PNums()]);
+                      //  box.Set (points[surfelements[sei].PNums()]);
+
+                      Box<3> box (Box<3>::EMPTY_BOX);
+                      for (auto pi : surfelements[sei].PNums())
+                        box.Add (points[pi]);
+                      
                       elementsearchtree -> Insert (box, sei+1);
                     }
                 }
@@ -4351,14 +4632,21 @@ namespace netgen
                 {
                   Box<3> box (Box<3>::EMPTY_BOX);
                   for (ElementIndex ei = 0; ei < ne; ei++)
-                    box.Add (points[volelements[ei].PNums()]);
+                    // box.Add (points[volelements[ei].PNums()]);
+                    for (auto pi : volelements[ei].PNums())
+                      box.Add (points[pi]);
                   
                   box.Increase (1.01 * box.Diam());
-                  elementsearchtree = new BoxTree<3> (box);
+                  elementsearchtree = make_unique<BoxTree<3>> (box);
                   
                   for (ElementIndex ei = 0; ei < ne; ei++)
                     {
-                      box.Set (points[volelements[ei].PNums()]);
+                      // box.Set (points[volelements[ei].PNums()]);
+
+                      Box<3> box (Box<3>::EMPTY_BOX);
+                      for (auto pi : volelements[ei].PNums())
+                        box.Add (points[pi]);
+
                       elementsearchtree -> Insert (box, ei+1);
                     }
                 }
@@ -4410,7 +4698,7 @@ namespace netgen
     Vec3d rhs, sol;
     const double eps = 1e-6;
 
-    Array<Element2d> loctrigs;
+    NgArray<Element2d> loctrigs;
 
     
     //SZ 
@@ -4771,6 +5059,42 @@ namespace netgen
             //(*testout) << "col1 " << col1 << " col2 " << col2 << " col3 " << col3 << " rhs " << rhs << endl;
             //(*testout) << "sol " << sol << endl;
 
+            if (SurfaceElement(element).GetType() ==TRIG6)
+              {
+                netgen::Point<2> lam(1./3,1./3);
+                Vec<3> rhs;
+                Vec<2> deltalam;
+                netgen::Point<3> x;
+                Mat<3,2> Jac,Jact;
+                
+                double delta=1;
+                
+                bool retval;
+                
+                int i = 0;
+                
+                const int maxits = 30;
+                while(delta > 1e-16 && i<maxits)
+                  {
+                    curvedelems->CalcSurfaceTransformation(lam,element-1,x,Jac);
+                    rhs = p-x;
+                    Jac.Solve(rhs,deltalam);
+                    
+                    lam += deltalam;
+                    
+                    delta = deltalam.Length2();
+                    
+                    i++;
+                    //(*testout) << "pcie i " << i << " delta " << delta << " p " << p << " x " << x << " lam " << lam << endl;
+                    //<< "Jac " << Jac << endl;
+                  }
+                
+                if(i==maxits)
+                  return false;
+                
+                sol.X() = lam(0);
+                sol.Y() = lam(1);
+              }
             if (sol.X() >= -eps && sol.Y() >= -eps && 
                 sol.X() + sol.Y() <= 1+eps)
               {
@@ -4907,7 +5231,7 @@ namespace netgen
     Vec3d rhs, sol;
     const double eps = 1.e-4;
 
-    Array<Element> loctets;
+    NgArray<Element> loctets;
 
     VolumeElement(element).GetTets (loctets);
 
@@ -4938,8 +5262,8 @@ namespace netgen
         if (sol.X() >= -eps && sol.Y() >= -eps && sol.Z() >= -eps &&
             sol.X() + sol.Y() + sol.Z() <= 1+eps)
           {
-            Array<Element> loctetsloc;
-            Array<netgen::Point<3> > pointsloc;
+            NgArray<Element> loctetsloc;
+            NgArray<netgen::Point<3> > pointsloc;
 
             VolumeElement(element).GetTetsLocal (loctetsloc);
             VolumeElement(element).GetNodesLocalNew (pointsloc);
@@ -4971,7 +5295,7 @@ namespace netgen
   {
     if(index != -1) 
       {
-        Array<int> dummy(1);
+        NgArray<int> dummy(1);
         dummy[0] = index;
         return GetElementOfPoint(p,lami,&dummy,build_searchtree,allowindex);
       }
@@ -4984,13 +5308,17 @@ namespace netgen
 
   int Mesh :: GetElementOfPoint (const netgen::Point<3> & p,
                                  double lami[3],
-                                 const Array<int> * const indices,
+                                 const NgArray<int> * const indices,
                                  bool build_searchtree,
                                  const bool allowindex) const
   {
     // const double pointtol = 1e-12;
     // netgen::Point<3> pmin = p - Vec<3> (pointtol, pointtol, pointtol);
     // netgen::Point<3> pmax = p + Vec<3> (pointtol, pointtol, pointtol);
+
+    if ( (dimension == 2 && !GetNSE()) ||
+    	 (dimension == 3 && !GetNE() && !GetNSE()) )
+      return -1;
 
     if (dimension == 2 || (dimension==3 && !GetNE() && GetNSE()))
       {
@@ -5000,7 +5328,7 @@ namespace netgen
         if(ps_startelement != 0 && ps_startelement <= GetNSE() && PointContainedIn2DElement(p,lami,ps_startelement))
           return ps_startelement;
 
-        Array<int> locels;
+        NgArray<int> locels;
         if (elementsearchtree || build_searchtree)
           {
             // update if necessary:
@@ -5046,7 +5374,7 @@ namespace netgen
         if(ps_startelement != 0 && PointContainedIn3DElement(p,lami,ps_startelement))
           return ps_startelement;
 
-        Array<int> locels;
+        NgArray<int> locels;
         if (elementsearchtree || build_searchtree)
           {
             // update if necessary:
@@ -5123,7 +5451,7 @@ namespace netgen
   {
     if(index != -1) 
       {
-        Array<int> dummy(1);
+        NgArray<int> dummy(1);
         dummy[0] = index;
         return GetSurfaceElementOfPoint(p,lami,&dummy,build_searchtree,allowindex);
       }
@@ -5136,7 +5464,7 @@ namespace netgen
 
   int Mesh :: GetSurfaceElementOfPoint (const netgen::Point<3> & p,
                                         double lami[3],
-                                        const Array<int> * const indices,
+                                        const NgArray<int> * const indices,
                                         bool build_searchtree,
                                         const bool allowindex) const
   {
@@ -5160,7 +5488,7 @@ namespace netgen
             return velement;
           }
         
-        Array<int> faces;
+        NgArray<int> faces;
         topology.GetElementFaces(velement,faces);
 
         //(*testout) << "faces " << faces << endl;
@@ -5192,7 +5520,7 @@ namespace netgen
               }
           }
 
-        Array<int> faces2;
+        NgArray<int> faces2;
         topology.GetElementFaces(velement,faces2);
         /*
         cout << "no matching surf element" << endl
@@ -5209,7 +5537,7 @@ namespace netgen
 
 
   void Mesh::GetIntersectingVolEls(const Point3d& p1, const Point3d& p2, 
-                                   Array<int> & locels) const
+                                   NgArray<int> & locels) const
   {
     elementsearchtree->GetIntersecting (p1, p2, locels);
   }
@@ -5221,8 +5549,8 @@ namespace netgen
     int np = GetNP();
     int nse = GetNSE();
 
-    BitArray surfused(nse);
-    BitArray pused (np);
+    NgBitArray surfused(nse);
+    NgBitArray pused (np);
 
     surfused.Clear();
 
@@ -5333,7 +5661,7 @@ namespace netgen
     int fdi;
     int np = GetNP();
 
-    BitArray usedp(np);
+    NgBitArray usedp(np);
     Array<SurfaceElementIndex> els_of_face;
 
     fdi = 1;
@@ -5498,6 +5826,8 @@ namespace netgen
 
   void Mesh :: RebuildSurfaceElementLists ()
   {
+    static Timer t("Mesh::LinkSurfaceElements"); RegionTimer reg (t);    
+    
     for (int i = 0; i < facedecoding.Size(); i++)
       facedecoding[i].firstelement = -1;
     for (int i = surfelements.Size()-1; i >= 0; i--)
@@ -5691,10 +6021,18 @@ namespace netgen
 
   int Mesh :: MarkIllegalElements ()
   {
-    int cnt = 0;
-    for (auto & el : VolumeElements())
-      if (!LegalTet (el))
-        cnt++;
+    if(!boundaryedges)
+      BuildBoundaryEdges();
+
+    atomic<int> cnt = 0;
+    ParallelForRange( Range(volelements), [&] (auto myrange)
+    {
+      int cnt_local = 0;
+      for(auto & el : volelements.Range(myrange))
+        if (!LegalTet (el))
+          cnt_local++;
+      cnt += cnt_local;
+    });
     return cnt;
   }
 
@@ -5732,7 +6070,7 @@ namespace netgen
   //   }
 
 
-  //   void Mesh :: GetIdentificationMap (int identnr, Array<int> & identmap) const
+  //   void Mesh :: GetIdentificationMap (int identnr, NgArray<int> & identmap) const
   //   {
   //     int i, j;
 
@@ -5755,7 +6093,7 @@ namespace netgen
   //   }
 
 
-  //   void Mesh :: GetIdentificationPairs (int identnr, Array<INDEX_2> & identpairs) const
+  //   void Mesh :: GetIdentificationPairs (int identnr, NgArray<INDEX_2> & identpairs) const
   //   {
   //     int i, j;
 
@@ -5814,34 +6152,17 @@ namespace netgen
 
   void Mesh :: ComputeNVertices ()
   {
-    int i, j, nv;
-    int ne = GetNE();
-    // int nse = GetNSE();
-
     numvertices = 0;
-    for (i = 1; i <= ne; i++)
-      {
-        const Element & el = VolumeElement(i);
-        nv = el.GetNV();
-        for (j = 0; j < nv; j++)
-          if (el[j] > numvertices)
-            numvertices = el[j];
-      }
-    /*
-    for (i = 1; i <= nse; i++)
-      {
-        const Element2d & el = SurfaceElement(i);
-        nv = el.GetNV();
-        for (j = 1; j <= nv; j++)
-          if (el.PNum(j) > numvertices)
-            numvertices = el.PNum(j);
-      } 
-    */
-    for (auto & el : SurfaceElements())
+
+    for (const Element & el : VolumeElements())
+      for (PointIndex v : el.Vertices())
+        if (v > numvertices) numvertices = v;
+        
+    for (const Element2d & el : SurfaceElements())
       for (PointIndex v : el.Vertices())
         if (v > numvertices) numvertices = v;
 
-    numvertices += 1- PointIndex::BASE;
+    numvertices += 1-PointIndex::BASE;
   }
 
   int Mesh :: GetNV () const
@@ -5870,6 +6191,73 @@ namespace netgen
     GetIdentifications().SetMaxPointNr (np + PointIndex::BASE-1);
   }
 
+
+  Table<ElementIndex, PointIndex> Mesh :: CreatePoint2ElementTable() const
+  {
+    TableCreator<ElementIndex, PointIndex> creator(GetNP());
+    for ( ; !creator.Done(); creator++)
+      ngcore::ParallelForRange
+        (Range(volelements), [&] (auto myrange)
+         {
+           for (ElementIndex ei : myrange)
+             for (PointIndex pi : (*this)[ei].PNums())
+               creator.Add (pi, ei);
+         });
+    
+    auto elementsonnode = creator.MoveTable();
+    ngcore::ParallelForRange
+      (elementsonnode.Range(), [&] (auto myrange)
+       {
+         for (PointIndex pi : myrange)
+           QuickSort(elementsonnode[pi]);
+       }, ngcore::TasksPerThread(4));
+
+    return move(elementsonnode);
+  }
+
+  Table<SurfaceElementIndex, PointIndex> Mesh :: CreatePoint2SurfaceElementTable( int faceindex ) const
+  {
+    static Timer timer("Mesh::CreatePoint2SurfaceElementTable"); RegionTimer rt(timer);
+
+    TableCreator<SurfaceElementIndex, PointIndex> creator(GetNP());
+
+    if(faceindex==0)
+      {
+        for ( ; !creator.Done(); creator++)
+          ngcore::ParallelForRange
+            (Range(surfelements), [&] (auto myrange)
+             {
+               for (SurfaceElementIndex ei : myrange)
+                 for (PointIndex pi : (*this)[ei].PNums())
+                   creator.Add (pi, ei);
+             }, ngcore::TasksPerThread(4));
+      }
+    else
+      {
+        Array<SurfaceElementIndex> face_els;
+        GetSurfaceElementsOfFace(faceindex, face_els);
+        for ( ; !creator.Done(); creator++)
+          ngcore::ParallelForRange
+            (Range(face_els), [&] (auto myrange)
+             {
+               for (auto i : myrange)
+                 for (PointIndex pi : (*this)[face_els[i]].PNums())
+                   creator.Add (pi, face_els[i]);
+             }, ngcore::TasksPerThread(4));
+      }
+    
+    auto elementsonnode = creator.MoveTable();
+    ngcore::ParallelForRange
+      (elementsonnode.Range(), [&] (auto myrange)
+       {
+         for (PointIndex pi : myrange)
+           QuickSort(elementsonnode[pi]);
+       });
+
+    return move(elementsonnode);
+  }
+
+  
 
   /*
     void Mesh :: BuildConnectedNodes ()
@@ -6199,16 +6587,31 @@ namespace netgen
       return defaultstring;
   }
 
-  void Mesh :: SetUserData(const char * id, Array<int> & data)
+
+  NgArray<string*> & Mesh :: GetRegionNamesCD (int codim)
+  {
+    switch (codim)
+      {
+      case 0: return materials;
+      case 1: return bcnames;
+      case 2: return cd2names;
+      case 3: return cd3names;
+      default: throw Exception("don't have regions of co-dimension "+ToString(codim));
+      }
+  }
+  
+  
+
+  void Mesh :: SetUserData(const char * id, NgArray<int> & data)
   {
     if(userdata_int.Used(id))
       delete userdata_int[id];
 
-    Array<int> * newdata = new Array<int>(data);
+    NgArray<int> * newdata = new NgArray<int>(data);
 
     userdata_int.Set(id,newdata);      
   }
-  bool Mesh :: GetUserData(const char * id, Array<int> & data, int shift) const
+  bool Mesh :: GetUserData(const char * id, NgArray<int> & data, int shift) const
   {
     if(userdata_int.Used(id))
       {
@@ -6224,16 +6627,16 @@ namespace netgen
         return false;
       }
   }
-  void Mesh :: SetUserData(const char * id, Array<double> & data)
+  void Mesh :: SetUserData(const char * id, NgArray<double> & data)
   {
     if(userdata_double.Used(id))
       delete userdata_double[id];
 
-    Array<double> * newdata = new Array<double>(data);
+    NgArray<double> * newdata = new NgArray<double>(data);
 
     userdata_double.Set(id,newdata);      
   }
-  bool Mesh :: GetUserData(const char * id, Array<double> & data, int shift) const
+  bool Mesh :: GetUserData(const char * id, NgArray<double> & data, int shift) const
   {
     if(userdata_double.Used(id))
       {

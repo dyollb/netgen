@@ -49,12 +49,12 @@ namespace netgen
   
     DLL_HEADER void CalcTransformationMatrices();
     DLL_HEADER void StandardRotation (const char * dir);
-    DLL_HEADER void ArbitraryRotation (const Array<double> & alpha, const Array<Vec3d> & vec);
+    DLL_HEADER void ArbitraryRotation (const NgArray<double> & alpha, const NgArray<Vec3d> & vec);
     DLL_HEADER void ArbitraryRotation (const double alpha, const Vec3d & vec);
 
-    DLL_HEADER void MouseMove(int oldx, int oldy,
-                   int newx, int newy,
-                   char mode);
+    DLL_HEADER virtual void MouseMove(int oldx, int oldy,
+                                      int newx, int newy,
+                                      char mode);
 
     DLL_HEADER void LookAt (const Point<3> & cam, const Point<3> & obj,
                  const Point<3> & camup);
@@ -95,12 +95,20 @@ namespace netgen
 
   class VisualSceneSurfaceMeshing : public VisualScene
   {
+    double scalex = 1., scaley = 1., shiftx = 0., shifty = 0.;
   public:
+    shared_ptr<NgArray<Point<3>>> locpointsptr;
+    shared_ptr<NgArray<INDEX_2>> loclinesptr;
+    shared_ptr<NgArray<Point<2>>> plainpointsptr;
+    int oldnl;
+    bool clearptr;
     VisualSceneSurfaceMeshing ();
     virtual ~VisualSceneSurfaceMeshing ();
 
-    virtual void BuildScene (int zoomall = 0);
-    virtual void DrawScene ();
+    void BuildScene (int zoomall = 0) override;
+    void DrawScene () override;
+    void MouseMove(int oldx, int oldy, int newx, int newy,
+                   char mode) override;
   };
 
 
@@ -142,8 +150,8 @@ namespace netgen
 
 
 #ifdef PARALLELGL
-    Array<int> par_linelists;
-    Array<int> par_filledlists;
+    NgArray<int> par_linelists;
+    NgArray<int> par_filledlists;
 #endif
 
     MouseEventHandler * user_me_handler;

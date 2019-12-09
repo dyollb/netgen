@@ -15,13 +15,25 @@ namespace ngcore
   // windows does demangling in typeid(T).name()
   NGCORE_API std::string Demangle(const char* typeinfo) { return typeinfo; }
 #else
-  NGCORE_API std::string Demangle(const char* typeinfo) { int status; return abi::__cxa_demangle(typeinfo,
-                                                                                      nullptr,
-                                                                                      nullptr,
-                                                                                      &status); }
+  NGCORE_API std::string Demangle(const char* typeinfo)
+  {
+    int status=0;
+    try
+      {
+        char *s = abi::__cxa_demangle(typeinfo, nullptr, nullptr, &status);
+        std::string result{s};
+        free(s);
+        return result;
+      }
+    catch( const std::exception & e )
+      {
+        GetLogger("utils")->warn("{}:{} cannot demangle {}, status: {}, error:{}", __FILE__, __LINE__, typeinfo, status, e.what());
+      }
+    return typeinfo;
+  }
 #endif
 
-  double ticks_per_second = [] () noexcept
+  double seconds_per_tick = [] () noexcept
   {
       auto tick_start = GetTimeCounter();
       double tstart = WallTime();
@@ -33,7 +45,7 @@ namespace ngcore
       auto tick_end = GetTimeCounter();
       tend = WallTime();
 
-      return (tick_end-tick_start)/(tend-tstart);
+      return (tend-tstart)/static_cast<double>(tick_end-tick_start);
   }();
 
   const std::chrono::time_point<TClock> wall_time_start = TClock::now();

@@ -21,6 +21,7 @@
 #include "XSControl_WorkSession.hxx"
 #include "XSControl_TransferReader.hxx"
 #include "StepRepr_RepresentationItem.hxx"
+#include "StepBasic_ProductDefinitionRelationship.hxx"
 
 #ifndef _Standard_Version_HeaderFile
 #include <Standard_Version.hxx>
@@ -37,43 +38,63 @@
 
 namespace netgen
 {
-void STEP_GetEntityName(const TopoDS_Shape & theShape, STEPCAFControl_Reader * aReader, char * acName)
-{
-   const Handle(XSControl_WorkSession)& theSession = aReader->Reader().WS();
-   const Handle(XSControl_TransferReader)& aTransferReader =
-      theSession->TransferReader();
+  string STEP_GetEntityName(const TopoDS_Shape & theShape, STEPCAFControl_Reader * aReader)
+  {
+    const Handle(XSControl_WorkSession)& theSession = aReader->Reader().WS();
+    const Handle(XSControl_TransferReader)& aTransferReader =
+        theSession->TransferReader();
 
-   Handle(Standard_Transient) anEntity =
-      aTransferReader->EntityFromShapeResult(theShape, 1);
+    Handle(Standard_Transient) anEntity =
+        aTransferReader->EntityFromShapeResult(theShape, 1);
 
-   if (anEntity.IsNull()) {
-      // as just mapped
-      anEntity = aTransferReader->EntityFromShapeResult (theShape,-1);
-   }
+    if (anEntity.IsNull()) // as just mapped
+        anEntity = aTransferReader->EntityFromShapeResult (theShape,-1);
 
-   if (anEntity.IsNull()) {
-      // as anything
-      anEntity = aTransferReader->EntityFromShapeResult (theShape,4);
-   }
+    if (anEntity.IsNull()) // as anything
+        anEntity = aTransferReader->EntityFromShapeResult (theShape,4);
 
-   if (anEntity.IsNull()) {
-      cout<<"Warning: XSInterVertex_STEPReader::ReadAttributes()\nentity not found"<<endl;
-      strcpy(acName, "none");
-   }
-   else
-   {
-      Handle(StepRepr_RepresentationItem) aReprItem;
-      aReprItem =
-         Handle(StepRepr_RepresentationItem)::DownCast(anEntity);
-
-      if (aReprItem.IsNull()) {
-         cout<<"Error: STEPReader::ReadAttributes():\nStepRepr_RepresentationItem Is NULL"<<endl;
+    if (anEntity.IsNull())
+      {
+        cout<<"Warning: cannot get entity from shape" <<endl;
+        return "none";
       }
-      else
-         strcpy(acName, aReprItem->Name()->ToCString());
-   }
-}
 
+    auto aReprItem = Handle(StepRepr_RepresentationItem)::DownCast(anEntity);
+    if(!aReprItem.IsNull())
+        return aReprItem->Name()->ToCString();;
+
+    auto bReprItem = Handle(StepBasic_ProductDefinitionRelationship)::DownCast(anEntity);
+    if (!bReprItem.IsNull())
+        return bReprItem->Description()->ToCString();
+
+    cout<<"Warning: unknown entity type " << anEntity->DynamicType() << endl;
+    return "none";
+  }
+
+  void OCCGeometry :: Analyse(Mesh& mesh,
+                              const MeshingParameters& mparam) const
+  {
+    OCCSetLocalMeshSize(*this, mesh, mparam, occparam);
+  }
+
+  void OCCGeometry :: FindEdges(Mesh& mesh,
+                                const MeshingParameters& mparam) const
+  {
+    OCCFindEdges(*this, mesh, mparam);
+  }
+
+  void OCCGeometry :: MeshSurface(Mesh& mesh,
+                                  const MeshingParameters& mparam) const
+  {
+    OCCMeshSurface(*this, mesh, mparam);
+  }
+
+  void OCCGeometry :: FinalizeMesh(Mesh& mesh) const
+  {
+    for (int i = 0; i < mesh.GetNDomains(); i++)
+      if (snames.Size())
+        mesh.SetMaterial (i+1, snames[i]);
+  }
 
    void OCCGeometry :: PrintNrShapes ()
    {
@@ -166,7 +187,7 @@ void STEP_GetEntityName(const TopoDS_Shape & theShape, STEPCAFControl_Reader * a
       for (exp0.Init(shape, TopAbs_COMPSOLID); exp0.More(); exp0.Next()) nrcs++;
 
       double surfacecont = 0;
-
+      
       {
          Handle_ShapeBuild_ReShape rebuild = new ShapeBuild_ReShape;
          rebuild->Apply(shape);
@@ -869,7 +890,7 @@ void STEP_GetEntityName(const TopoDS_Shape & theShape, STEPCAFControl_Reader * a
       // Philippose - 15/01/2009
       face_maxh.DeleteAll();
       face_maxh.SetSize (fmap.Extent());
-      face_maxh = mparam.maxh;
+      face_maxh = 1e99; // mparam.maxh;
 
       // Philippose - 15/01/2010      
       face_maxh_modified.DeleteAll();      
@@ -1010,10 +1031,7 @@ void STEP_GetEntityName(const TopoDS_Shape & theShape, STEPCAFControl_Reader * a
       SetCenter();
    }
 
-
-
-
-   void OCCGeometry :: Project (int surfi, Point<3> & p) const
+   PointGeomInfo OCCGeometry :: ProjectPoint(int surfi, Point<3> & p) const
    {
       static int cnt = 0;
       if (++cnt % 1000 == 0) cout << "Project cnt = " << cnt << endl;
@@ -1027,13 +1045,55 @@ void STEP_GetEntityName(const TopoDS_Shape & theShape, STEPCAFControl_Reader * a
       suval.Coord( u, v);
       pnt = thesurf->Value( u, v );
 
-
+      PointGeomInfo gi;
+      gi.trignum = surfi;
+      gi.u = u;
+      gi.v = v;
       p = Point<3> (pnt.X(), pnt.Y(), pnt.Z());
-
+      return gi;
    }
 
+  bool OCCGeometry :: ProjectPointGI(int surfind, Point<3>& p, PointGeomInfo& gi) const
+  {
+    double u = gi.u;
+    double v = gi.v;
 
+    Point<3> hp = p;
+    if (FastProject (surfind, hp, u, v))
+      {
+	p = hp;
+	return 1;
+      }
+    ProjectPoint (surfind, p);
+    return CalcPointGeomInfo (surfind, gi, p);
+  }
 
+  void OCCGeometry :: ProjectPointEdge(int surfind, INDEX surfind2,
+                                       Point<3> & p, EdgePointGeomInfo* gi) const
+  {
+    TopExp_Explorer exp0, exp1;
+    bool done = false;
+    Handle(Geom_Curve) c;
+
+    for (exp0.Init(fmap(surfind), TopAbs_EDGE); !done && exp0.More(); exp0.Next())
+      for (exp1.Init(fmap(surfind2), TopAbs_EDGE); !done && exp1.More(); exp1.Next())
+	{
+	  if (TopoDS::Edge(exp0.Current()).IsSame(TopoDS::Edge(exp1.Current())))
+	    {
+	      done = true;
+	      double s0, s1;
+	      c = BRep_Tool::Curve(TopoDS::Edge(exp0.Current()), s0, s1);
+	    }
+	}
+
+    gp_Pnt pnt(p(0), p(1), p(2));
+    GeomAPI_ProjectPointOnCurve proj(pnt, c);
+    pnt = proj.NearestPoint();
+    p(0) = pnt.X();
+    p(1) = pnt.Y();
+    p(2) = pnt.Z();
+
+  }
 
    bool OCCGeometry :: FastProject (int surfi, Point<3> & ap, double& u, double& v) const
    {
@@ -1091,7 +1151,147 @@ void STEP_GetEntityName(const TopoDS_Shape & theShape, STEPCAFControl_Reader * a
       return true;
    }
 
+  Vec<3> OCCGeometry :: GetNormal(int surfind, const Point<3> & p, const PointGeomInfo* geominfo) const
+  {
+    if(geominfo)
+      {
+        gp_Pnt pnt;
+        gp_Vec du, dv;
 
+        Handle(Geom_Surface) occface;
+        occface = BRep_Tool::Surface(TopoDS::Face(fmap(surfind)));
+
+        occface->D1(geominfo->u,geominfo->v,pnt,du,dv);
+
+        auto n = Cross (Vec<3>(du.X(), du.Y(), du.Z()),
+                        Vec<3>(dv.X(), dv.Y(), dv.Z()));
+        n.Normalize();
+
+        if (fmap(surfind).Orientation() == TopAbs_REVERSED) n *= -1;
+        return n;
+      }
+    Standard_Real u,v;
+
+    gp_Pnt pnt(p(0), p(1), p(2));
+
+    Handle(Geom_Surface) occface;
+    occface = BRep_Tool::Surface(TopoDS::Face(fmap(surfind)));
+
+    /*
+    GeomAPI_ProjectPointOnSurf proj(pnt, occface);
+
+    if (proj.NbPoints() < 1)
+      {
+	cout << "ERROR: OCCSurface :: GetNormalVector: GeomAPI_ProjectPointOnSurf failed!"
+	     << endl;
+	cout << p << endl;
+	return;
+      }
+ 
+    proj.LowerDistanceParameters (u, v);
+    */
+    
+    Handle( ShapeAnalysis_Surface ) su = new ShapeAnalysis_Surface( occface );
+    gp_Pnt2d suval = su->ValueOfUV ( pnt, BRep_Tool::Tolerance( TopoDS::Face(fmap(surfind)) ) );
+    suval.Coord( u, v);
+    pnt = occface->Value( u, v );
+
+    gp_Vec du, dv;
+    occface->D1(u,v,pnt,du,dv);
+
+    /*
+      if (!occface->IsCNu (1) || !occface->IsCNv (1))
+      (*testout) << "SurfOpt: Differentiation FAIL" << endl;
+    */
+
+    auto n = Cross (Vec3d(du.X(), du.Y(), du.Z()),
+	       Vec3d(dv.X(), dv.Y(), dv.Z()));
+    n.Normalize();
+
+    if (fmap(surfind).Orientation() == TopAbs_REVERSED) n *= -1;
+    return n;
+  }
+
+  bool OCCGeometry :: CalcPointGeomInfo(int surfind, PointGeomInfo& gi, const Point<3> & p) const
+  {
+    Standard_Real u,v;
+
+    gp_Pnt pnt(p(0), p(1), p(2));
+
+    Handle(Geom_Surface) occface;
+    occface = BRep_Tool::Surface(TopoDS::Face(fmap(surfind)));
+
+    /*
+    GeomAPI_ProjectPointOnSurf proj(pnt, occface);
+
+    if (proj.NbPoints() < 1)
+      {
+	cout << "ERROR: OCCSurface :: GetNormalVector: GeomAPI_ProjectPointOnSurf failed!"
+	     << endl;
+	cout << p << endl;
+	return 0;
+      }
+ 
+    proj.LowerDistanceParameters (u, v);  
+    */
+
+    Handle( ShapeAnalysis_Surface ) su = new ShapeAnalysis_Surface( occface );
+    gp_Pnt2d suval = su->ValueOfUV ( pnt, BRep_Tool::Tolerance( TopoDS::Face(fmap(surfind)) ) );
+    suval.Coord( u, v);
+    //pnt = occface->Value( u, v );
+    
+
+    gi.u = u;
+    gi.v = v;
+    return true;
+  }
+
+  void OCCGeometry :: PointBetween(const Point<3> & p1, const Point<3> & p2, double secpoint,
+                                   int surfi, 
+                                   const PointGeomInfo & gi1, 
+                                   const PointGeomInfo & gi2,
+                                   Point<3> & newp, PointGeomInfo & newgi) const
+  {
+    Point<3> hnewp;
+    hnewp = p1+secpoint*(p2-p1);
+
+    if (surfi > 0)
+      {
+	double u = gi1.u+secpoint*(gi2.u-gi1.u);
+	double v = gi1.v+secpoint*(gi2.v-gi1.v);
+
+        auto savept = hnewp;
+	if (!FastProject(surfi, hnewp, u, v) || Dist(hnewp, savept) > Dist(p1,p2))
+	  {
+            //  cout << "Fast projection to surface fails! Using OCC projection" << endl;
+            hnewp = savept;
+	    ProjectPoint(surfi, hnewp);
+	  }
+	newgi.trignum = 1;
+        newgi.u = u;
+        newgi.v = v;
+      }
+    newp = hnewp;
+  }
+
+
+  void OCCGeometry :: PointBetweenEdge(const Point<3> & p1,
+                                       const Point<3> & p2, double secpoint,
+                                       int surfi1, int surfi2, 
+                                       const EdgePointGeomInfo & ap1, 
+                                       const EdgePointGeomInfo & ap2,
+                                       Point<3> & newp, EdgePointGeomInfo & newgi) const
+  {
+    double s0, s1;
+
+    Point<3> hnewp = p1+secpoint*(p2-p1);
+    gp_Pnt pnt(hnewp(0), hnewp(1), hnewp(2));
+    GeomAPI_ProjectPointOnCurve proj(pnt, BRep_Tool::Curve(TopoDS::Edge(emap(ap1.edgenr)), s0, s1));
+    pnt = proj.NearestPoint();
+    hnewp = Point<3> (pnt.X(), pnt.Y(), pnt.Z());
+    newp = hnewp;
+    newgi = ap1;
+  };
 
 
 //    void OCCGeometry :: WriteOCC_STL(char * filename)
@@ -1109,6 +1309,10 @@ void STEP_GetEntityName(const TopoDS_Shape & theShape, STEPCAFControl_Reader * a
 
   void LoadOCCInto(OCCGeometry* occgeo, const char* filename)
   {
+      static Timer timer_all("LoadOCC"); RegionTimer rtall(timer_all);
+      static Timer timer_readfile("LoadOCC-ReadFile");
+      static Timer timer_transfer("LoadOCC-Transfer");
+      static Timer timer_getnames("LoadOCC-get names");
 
       // Initiate a dummy XCAF Application to handle the STEP XCAF Document
       static Handle_XCAFApp_Application dummy_app = XCAFApp_Application::GetApplication();
@@ -1125,19 +1329,23 @@ void STEP_GetEntityName(const TopoDS_Shape & theShape, STEPCAFControl_Reader * a
       }
       dummy_app->NewDocument ("STEP-XCAF",step_doc);
 
+      timer_readfile.Start();
       STEPCAFControl_Reader reader;
 
       // Enable transfer of colours
       reader.SetColorMode(Standard_True);
       reader.SetNameMode(Standard_True);
       Standard_Integer stat = reader.ReadFile((char*)filename);
+      timer_readfile.Stop();
 
+      timer_transfer.Start();
       if(stat != IFSelect_RetDone)
       {
         throw NgException("Couldn't load OCC geometry");
       }
 
       reader.Transfer(step_doc);
+      timer_transfer.Stop();
 
       // Read in the shape(s) and the colours present in the STEP File
       Handle_XCAFDoc_ShapeTool step_shape_contents = XCAFDoc_DocumentTool::ShapeTool(step_doc->Main());
@@ -1169,24 +1377,33 @@ void STEP_GetEntityName(const TopoDS_Shape & theShape, STEPCAFControl_Reader * a
 
       occgeo->CalcBoundingBox();
       PrintContents (occgeo);
-      char * name = new char(50);
-      //string name;
-      STEP_GetEntityName(occgeo->shape,&reader,name);
-      occgeo->snames.Append(name);
+      string name;
       TopExp_Explorer exp0,exp1;
       
+      timer_getnames.Start();
+      for (exp0.Init(occgeo->shape, TopAbs_SOLID); exp0.More(); exp0.Next())
+      {
+         TopoDS_Solid solid = TopoDS::Solid(exp0.Current());
+         name = STEP_GetEntityName(solid,&reader);
+         if (name == "")
+             name = string("domain_") + ToString(occgeo->snames.Size());
+         occgeo->snames.Append(name);
+      }
       for (exp0.Init(occgeo->shape, TopAbs_FACE); exp0.More(); exp0.Next())
       {
          TopoDS_Face face = TopoDS::Face(exp0.Current());
-         STEP_GetEntityName(face,&reader,name);
+         name = STEP_GetEntityName(face,&reader);
+         if (name == "")
+             name = string("bc_") + ToString(occgeo->fnames.Size());
          occgeo->fnames.Append(name);
-         for (exp1.Init(face, TopAbs_EDGE); exp1.More(); exp1.Next())
-         {
-            TopoDS_Edge edge = TopoDS::Edge(exp1.Current());
-            STEP_GetEntityName(edge,&reader,name);
-            occgeo->enames.Append(name);
-         }
+//          for (exp1.Init(face, TopAbs_EDGE); exp1.More(); exp1.Next())
+//          {
+//             TopoDS_Edge edge = TopoDS::Edge(exp1.Current());
+//             name = STEP_GetEntityName(edge,&reader);
+//             occgeo->enames.Append(name);
+//          }
       }
+      timer_getnames.Stop();
       // Gerhard BEGIN
 //       cout << "Solid Names: "<<endl;
 //       for (int i=0;i<occgeo->snames.Size();i++)
@@ -1614,8 +1831,8 @@ void STEP_GetEntityName(const TopoDS_Shape & theShape, STEPCAFControl_Reader * a
 
       // double dmax;
       // int cnt = 0;
-      Array <double> edgeLengths;
-      Array <int> order;
+      NgArray <double> edgeLengths;
+      NgArray <int> order;
       edgeLengths.SetSize (emap.Extent());
       order.SetSize (emap.Extent());
 
@@ -1679,50 +1896,20 @@ void STEP_GetEntityName(const TopoDS_Shape & theShape, STEPCAFControl_Reader * a
       return false;
    }
 
-
-
-
-  int OCCGeometry :: GenerateMesh (shared_ptr<Mesh> & mesh, MeshingParameters & mparam)
-   {
-     return OCCGenerateMesh (*this, mesh, mparam);
-   }
-
-
-
-
-   const Refinement & OCCGeometry :: GetRefinement () const
-   {
-      return * new OCCRefinementSurfaces (*this);
-   }
-
-
-
-
-   OCCParameters :: OCCParameters()
-   {
-      resthcloseedgefac = 1;
-      resthcloseedgeenable = 1;
-	  resthminedgelen = 0.001;
-	  resthminedgelenenable = 1;
-   }
-
-
-
-
-   void OCCParameters :: Print(ostream & ost) const
+  void OCCParameters :: Print(ostream & ost) const
    {
       ost << "OCC Parameters:" << endl
-         << "close edges: " << resthcloseedgeenable
-         << ", fac = " << resthcloseedgefac << endl
 		 << "minimum edge length: " << resthminedgelenenable
 		 << ", min len = " << resthminedgelen << endl;
    }
 
+  DLL_HEADER extern OCCParameters occparam;
+  OCCParameters occparam;
 
-
-
-   OCCParameters occparam;
-
+  // int OCCGeometry :: GenerateMesh (shared_ptr<Mesh> & mesh, MeshingParameters & mparam)
+  //  {
+  //    return OCCGenerateMesh (*this, mesh, mparam, occparam);
+  //  }
 }
 
 

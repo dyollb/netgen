@@ -71,8 +71,11 @@ void ParallelRun()
   MPI_Comm_size(MPI_COMM_WORLD, &ntasks);
   MPI_Comm_rank(MPI_COMM_WORLD, &id);
 
-  if (parameters.StringFlagDefined ("testout"))      
-    testout = new ofstream (string("testout_proc") + id  );      
+  if (parameters.StringFlagDefined ("testout"))
+    {
+      delete testout;
+      testout = new ofstream (string("testout_proc") + id  );
+    }
 
     
 
@@ -255,7 +258,7 @@ void ParallelRun()
 	      //get all possible confs
 	      int nconfs;
 	      auto cptr = glXGetFBConfigs (display,0, &nconfs);
-	      Array<int> conf_ids(nconfs);
+	      NgArray<int> conf_ids(nconfs);
 	      for(int k=0;k<nconfs;k++)
 		glXGetFBConfigAttrib(display, cptr[k], GLX_FBCONFIG_ID, &(conf_ids[k]));
 	      

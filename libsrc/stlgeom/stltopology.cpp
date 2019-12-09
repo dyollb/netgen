@@ -8,6 +8,7 @@
 
 #include "stlgeom.hpp"
 #include <vector>
+#include <cctype>
 
 namespace netgen
 {
@@ -31,7 +32,7 @@ STLTopology :: ~STLTopology()
 STLGeometry *  STLTopology :: LoadBinary (istream & ist)
 {
   STLGeometry * geom = new STLGeometry();
-  Array<STLReadTriangle> readtrigs;
+  NgArray<STLReadTriangle> readtrigs;
 
   PrintMessage(1,"Read STL binary file");
   
@@ -191,7 +192,7 @@ STLGeometry *  STLTopology :: LoadNaomi (istream & ist)
 {
   int i;
   STLGeometry * geom = new STLGeometry();
-  Array<STLReadTriangle> readtrigs;
+  NgArray<STLReadTriangle> readtrigs;
 
   PrintFnStart("read NAOMI file format");
   
@@ -204,7 +205,7 @@ STLGeometry *  STLTopology :: LoadNaomi (istream & ist)
     
 
   int noface, novertex;
-  Array<Point<3> > readpoints;
+  NgArray<Point<3> > readpoints;
 
   ist >> buf;
   if (strcmp (buf, "NODES") == 0)
@@ -338,9 +339,35 @@ void STLTopology :: Save (const char* filename) const
 
 STLGeometry *  STLTopology ::Load (istream & ist)
 {
+  // Check if the file starts with "solid". If not, the file is binary
+  {
+    // binary header is 80 bytes, so don't load more than that
+    constexpr int buflen = 80;
+    char buf[buflen+1];
+    FIOReadStringE(ist,buf,buflen);
+
+    // ignore whitespaces at start of line
+    int istart;
+    for (istart=0; istart<buflen-5; istart++)
+       if(std::isblank(buf[istart])==0)
+            break;
+
+    for (auto i : Range(buflen))
+        ist.unget();
+
+    // does not start with "solid" -> binary file
+    if (strncmp(buf+istart, "solid", 5) != 0)
+      return LoadBinary(ist);
+
+    // Check if there is a non-printable character in first 80 bytes
+    for (auto i : Range(istart, buflen))
+       if(std::isprint(buf[i])==0 && std::isspace(buf[i])==0)
+           return LoadBinary(ist);
+  }
+
   STLGeometry * geom = new STLGeometry();
 
-  Array<STLReadTriangle> readtrigs;
+  NgArray<STLReadTriangle> readtrigs;
 
   char buf[100];
   Point<3> pts[3];
@@ -349,6 +376,7 @@ STLGeometry *  STLTopology ::Load (istream & ist)
   int cntface = 0;
   int vertex = 0;
   bool badnormals = false;
+  ist >> buf; // skip first line
   
   while (ist.good())
     {
@@ -444,7 +472,7 @@ STLGeometry *  STLTopology ::Load (istream & ist)
 
 
 
-void STLTopology :: InitSTLGeometry(const Array<STLReadTriangle> & readtrigs)
+void STLTopology :: InitSTLGeometry(const NgArray<STLReadTriangle> & readtrigs)
 {
   // const double geometry_tol_fact = 1E6; 
   // distances lower than max_box_size/tol are ignored
@@ -470,7 +498,7 @@ void STLTopology :: InitSTLGeometry(const Array<STLReadTriangle> & readtrigs)
 
   pointtree = new Point3dTree (bb.PMin(), bb.PMax());
 
-  Array<int> pintersect;
+  NgArray<int> pintersect;
 
   pointtol = boundingbox.Diam() * stldoctor.geom_tol_fact;
   PrintMessage(5,"point tolerance = ", pointtol);
@@ -503,9 +531,9 @@ void STLTopology :: InitSTLGeometry(const Array<STLReadTriangle> & readtrigs)
 	      foundpos = AddPoint(p);
 	      pointtree->Insert (p, foundpos);
 	    }
-          if (Dist(p, points.Get(foundpos)) > 1e-10)
-            cout << "identify close points: " << p << " " << points.Get(foundpos) 
-                 << ", dist = " << Dist(p, points.Get(foundpos))
+          if (Dist(p, points[foundpos]) > 1e-10)
+            cout << "identify close points: " << p << " " << points[foundpos]
+                 << ", dist = " << Dist(p, points[foundpos])
                  << endl;
 	  st[k] = foundpos;
 	}
@@ -534,7 +562,7 @@ int STLTopology :: GetPointNum (const Point<3> & p)
   Point<3> pmin = p - Vec<3> (pointtol, pointtol, pointtol);
   Point<3> pmax = p + Vec<3> (pointtol, pointtol, pointtol);
   
-  Array<int> pintersect;
+  NgArray<int> pintersect;
 
   pointtree->GetIntersecting (pmin, pmax, pintersect);
   if (pintersect.Size() == 1)
@@ -699,14 +727,15 @@ void STLTopology :: FindNeighbourTrigs()
 
 
 
-  for (STLTrigIndex ti = 0; ti < GetNT(); ti++)
+  // for (STLTrigId ti = 0; ti < GetNT(); ti++)
+  for (STLTrigId ti : Range(trias))
     {
       STLTriangle & trig = trias[ti];
       for (int k = 0; k < 3; k++)
 	{
-	  STLPointIndex pi = trig[k] - STLBASE;
-	  STLPointIndex pi2 = trig[(k+1)%3] - STLBASE;
-	  STLPointIndex pi3 = trig[(k+2)%3] - STLBASE;
+	  STLPointId pi = trig[k]; //  - STLBASE;
+	  STLPointId pi2 = trig[(k+1)%3]; //  - STLBASE;
+	  STLPointId pi3 = trig[(k+2)%3]; // - STLBASE;
 	  
 	  // vector along edge
 	  Vec<3> ve = points[pi2] - points[pi];
@@ -724,24 +753,24 @@ void STLTopology :: FindNeighbourTrigs()
 
 	  for (int j = 0; j < trigsperpoint[pi].Size(); j++)
 	    {
-	      STLTrigIndex ti2 = trigsperpoint[pi][j] - STLBASE;
+	      STLTrigId ti2 = trigsperpoint[pi][j]; //  - STLBASE;
 	      const STLTriangle & trig2 = trias[ti2];
 
 	      if (ti == ti2) continue;
 	      
 	      bool hasboth = 0;
 	      for (int l = 0; l < 3; l++)
-		if (trig2[l] - STLBASE == pi2)
+		if (trig2[l] /* - STLBASE */ == pi2)
 		  {
 		    hasboth = 1;
 		    break;
 		  }
 	      if (!hasboth) continue;
 
-	      STLPointIndex pi4(0);
+	      STLPointId pi4(0);
 	      for (int l = 0; l < 3; l++)
-		if (trig2[l] - STLBASE != pi && trig2[l] - STLBASE != pi2)
-		  pi4 = trig2[l] - STLBASE;
+		if (trig2[l] /* - STLBASE */ != pi && trig2[l] /* - STLBASE */ != pi2)
+		  pi4 = trig2[l] /* - STLBASE */;
 
 	      Vec<3> vt2 = points[pi4] - points[pi];
 	      
@@ -751,12 +780,12 @@ void STLTopology :: FindNeighbourTrigs()
 	      if (phi < phimin)
 		{
 		  phimin = phi;
-		  trig.NBTrig (0, (k+2)%3) = ti2 + STLBASE;
+		  trig.NBTrig (0, (k+2)%3) = ti2; //  + STLBASE;
 		}
 	      if (phi > phimax)
 		{
 		  phimax = phi;
-		  trig.NBTrig (1, (k+2)%3) = ti2 + STLBASE;
+		  trig.NBTrig (1, (k+2)%3) = ti2; //  + STLBASE;
 		}
 	    }
 	}
@@ -816,7 +845,7 @@ void STLTopology :: FindNeighbourTrigs()
 	      PrintError("TRIG ",i," has ",NONeighbourTrigs(i)," neighbours!!!!");
 	      for (int kk=1; kk <= NONeighbourTrigs(i); kk++)
 		{
-		  PrintMessage(5,"neighbour-trig",kk," = ",NeighbourTrig(i,kk));
+		  PrintMessage(5,"neighbour-trig",kk," = ",int(NeighbourTrig(i,kk)));
 		}
 	    };
 	}
@@ -853,7 +882,7 @@ void STLTopology :: GetTrianglesInBox (/*
 					  const Point<3> & pmax,
 				       */
 				       const Box<3> & box,
-				       Array<int> & btrias) const
+				       NgArray<int> & btrias) const
 {
   if (searchtree)
 
@@ -934,10 +963,10 @@ int STLTopology :: GetRightTrig(int p1, int p2) const
 
 int STLTopology :: NeighbourTrigSorted(int trig, int edgenum) const
 {
-  int i, p1, p2;
-  int psearch = GetTriangle(trig).PNum(edgenum);
+  STLPointId p1, p2;
+  STLPointId psearch = GetTriangle(trig).PNum(edgenum);
 
-  for (i = 1; i <= 3; i++)
+  for (int i = 1; i <= 3; i++)
     {
       GetTriangle(trig).GetNeighbourPoints(GetTriangle(NeighbourTrig(trig,i)),p1,p2);
       if (p1 == psearch) {return NeighbourTrig(trig,i);}
@@ -1004,7 +1033,7 @@ void STLTopology :: OrientAfterTrig (int trig)
   if (starttrig >= 1 && starttrig <= GetNT())
     {
 
-      Array <int> oriented;
+      NgArray <int> oriented;
       oriented.SetSize(GetNT());
       int i;
       for (i = 1; i <= oriented.Size(); i++)
@@ -1016,9 +1045,9 @@ void STLTopology :: OrientAfterTrig (int trig)
   
       int k;
       
-      Array <int> list1;
+      NgArray <int> list1;
       list1.SetSize(0);
-      Array <int> list2;
+      NgArray <int> list2;
       list2.SetSize(0);
       list1.Append(starttrig);
 

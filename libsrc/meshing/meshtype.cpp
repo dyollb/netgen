@@ -7,18 +7,12 @@ namespace netgen
   int MultiPointGeomInfo :: 
   AddPointGeomInfo (const PointGeomInfo & gi)
   {
-    for (int k = 0; k < cnt; k++)
-      if (mgi[k].trignum == gi.trignum)
+    for (auto & pgi : mgi)
+      if (pgi.trignum == gi.trignum)
 	return 0;
   
-    if (cnt < MULTIPOINTGEOMINFO_MAX)
-      {
-	mgi[cnt] = gi;
-	cnt++;
-	return 0;
-      }
-
-    throw NgException ("Please report error: MPGI Size too small\n");
+    mgi.Append(gi);
+    return 0;
   }
   
 
@@ -59,8 +53,8 @@ namespace netgen
   Segment :: Segment() 
     : is_curved(false)
   {
-    pnums[0] = -1;
-    pnums[1] = -1; 
+    pnums[0] = PointIndex::INVALID;
+    pnums[1] = PointIndex::INVALID;
     edgenr = -1;
 
     singedge_left = 0.;
@@ -75,12 +69,12 @@ namespace netgen
 
     surfnr1 = -1;
     surfnr2 = -1;
-    pnums[2] = -1;
+    pnums[2] = PointIndex::INVALID;
     meshdocval = 0;
-    /*
-      geominfo[0].trignum=-1; 
-      geominfo[1].trignum=-1; 
+    geominfo[0].trignum=-1;
+    geominfo[1].trignum=-1;
 
+    /*
       epgeominfo[0].edgenr = 1;
       epgeominfo[0].dist = 0;
       epgeominfo[1].edgenr = 1;
@@ -191,7 +185,7 @@ namespace netgen
   { 
     for (int i = 0; i < ELEMENT2D_MAXPOINTS; i++)
       {
-	pnum[i] = 0;
+        pnum[i].Invalidate();
 	geominfo[i].trignum = 0;
       }
     np = anp;
@@ -216,7 +210,7 @@ namespace netgen
   { 
     for (int i = 0; i < ELEMENT2D_MAXPOINTS; i++)
       {
-	pnum[i] = 0;
+        pnum[i].Invalidate();
 	geominfo[i].trignum = 0;
       }
 
@@ -241,9 +235,9 @@ namespace netgen
     pnum[2] = pi3;
     np = 3;
     typ = TRIG;
-    pnum[3] = 0;
-    pnum[4] = 0;
-    pnum[5] = 0;
+    
+    for (int i = 3; i < ELEMENT2D_MAXPOINTS; i++)
+      pnum[i].Invalidate();
   
     for (int i = 0; i < ELEMENT2D_MAXPOINTS; i++)
       geominfo[i].trignum = 0;
@@ -301,9 +295,9 @@ namespace netgen
 
   void Element2d :: GetBox (const T_POINTS & points, Box3d & box) const
   {
-    box.SetPoint (points.Get(pnum[0]));
+    box.SetPoint (points[pnum[0]]);
     for (unsigned i = 1; i < np; i++)
-      box.AddPoint (points.Get(pnum[i]));
+      box.AddPoint (points[pnum[i]]);
   }
 
   bool Element2d :: operator==(const Element2d & el2) const
@@ -398,8 +392,8 @@ namespace netgen
 
 
 
-  Array<IntegrationPointData*> ipdtrig;
-  Array<IntegrationPointData*> ipdquad;
+  NgArray<IntegrationPointData*> ipdtrig;
+  NgArray<IntegrationPointData*> ipdquad;
 
 
   int Element2d :: GetNIP () const
@@ -415,7 +409,7 @@ namespace netgen
   }
 
   void Element2d :: 
-  GetIntegrationPoint (int ip, Point2d & p, double & weight) const
+  GetIntegrationPoint (int ip, Point<2> & p, double & weight) const
   {
     static double eltriqp[1][3] =
       {
@@ -439,13 +433,13 @@ namespace netgen
         PrintSysError ("Element2d::GetIntegrationPoint, illegal type ", int(typ));
       }
 
-    p.X() = pp[0];
-    p.Y() = pp[1];
+    p[0] = pp[0];
+    p[1] = pp[1];
     weight = pp[2];
   }
 
   void Element2d :: 
-  GetTransformation (int ip, const Array<Point2d> & points,
+  GetTransformation (int ip, const NgArray<Point<2>> & points,
                      DenseMatrix & trans) const
   {
     int np = GetNP();
@@ -453,7 +447,7 @@ namespace netgen
     pmat.SetSize (2, np);
     dshape.SetSize (2, np);
 
-    Point2d p;
+    Point<2> p;
     double w;
 
     GetPointMatrix (points, pmat);
@@ -498,7 +492,7 @@ namespace netgen
   }
 
 
-  void Element2d :: GetShape (const Point2d & p, Vector & shape) const
+  void Element2d :: GetShape (const Point<2> & p, Vector & shape) const
   {
     if (shape.Size() != GetNP())
       {
@@ -509,15 +503,15 @@ namespace netgen
     switch (typ)
       {
       case TRIG:
-        shape(0) = 1 - p.X() - p.Y();
-        shape(1) = p.X();
-        shape(2) = p.Y();
+        shape(0) = 1 - p[0] - p[1];
+        shape(1) = p[0];
+        shape(2) = p[1];
         break;
       case QUAD:
-        shape(0) = (1-p.X()) * (1-p.Y());
-        shape(1) = p.X() * (1-p.Y());
-        shape(2) = p.X() * p.Y();
-        shape(3) = (1-p.X()) * p.Y();
+        shape(0) = (1-p[0]) * (1-p[1]);
+        shape(1) = p[0] * (1-p[1]);
+        shape(2) = p[0] * p[1];
+        shape(3) = (1-p[0]) * p[1];
         break;
       default:
         PrintSysError ("Element2d::GetShape, illegal type ", int(typ));
@@ -587,7 +581,7 @@ namespace netgen
 
 
   void Element2d :: 
-  GetDShape (const Point2d & p, DenseMatrix & dshape) const
+  GetDShape (const Point<2> & p, DenseMatrix & dshape) const
   {
 #ifdef DEBUG
     if (dshape.Height() != 2 || dshape.Width() != np)
@@ -608,14 +602,14 @@ namespace netgen
         dshape.Elem(2, 3) = 1;
         break;
       case QUAD:
-        dshape.Elem(1, 1) = -(1-p.Y());
-        dshape.Elem(1, 2) = (1-p.Y());
-        dshape.Elem(1, 3) = p.Y();
-        dshape.Elem(1, 4) = -p.Y();
-        dshape.Elem(2, 1) = -(1-p.X());
-        dshape.Elem(2, 2) = -p.X();
-        dshape.Elem(2, 3) = p.X();
-        dshape.Elem(2, 4) = (1-p.X());
+        dshape.Elem(1, 1) = -(1-p[1]);
+        dshape.Elem(1, 2) = (1-p[1]);
+        dshape.Elem(1, 3) = p[1];
+        dshape.Elem(1, 4) = -p[1];
+        dshape.Elem(2, 1) = -(1-p[0]);
+        dshape.Elem(2, 2) = -p[0];
+        dshape.Elem(2, 3) = p[0];
+        dshape.Elem(2, 4) = (1-p[0]);
         break;
 
       default:
@@ -664,7 +658,7 @@ namespace netgen
 
 
   void Element2d :: 
-  GetPointMatrix (const Array<Point2d> & points,
+  GetPointMatrix (const NgArray<Point<2>> & points,
                   DenseMatrix & pmat) const
   {
     int np = GetNP();
@@ -679,9 +673,9 @@ namespace netgen
   
     for (int i = 1; i <= np; i++)
       {
-        const Point2d & p = points.Get(PNum(i));
-        pmat.Elem(1, i) = p.X();
-        pmat.Elem(2, i) = p.Y();
+        const auto& p = points.Get(PNum(i));
+        pmat.Elem(1, i) = p[0];
+        pmat.Elem(2, i) = p[1];
       }
   }
 
@@ -689,7 +683,7 @@ namespace netgen
 
 
 
-  double Element2d :: CalcJacobianBadness (const Array<Point2d> & points) const
+  double Element2d :: CalcJacobianBadness (const NgArray<Point<2>> & points) const
   {
     int i, j;
     int nip = GetNIP();
@@ -733,8 +727,8 @@ namespace netgen
     };
 
   double Element2d :: 
-  CalcJacobianBadnessDirDeriv (const Array<Point2d> & points,
-                               int pi, Vec2d & dir, double & dd) const
+  CalcJacobianBadnessDirDeriv (const NgArray<Point<2>> & points,
+                               int pi, Vec<2> & dir, double & dd) const
   {
     if (typ == QUAD)
       {
@@ -743,14 +737,14 @@ namespace netgen
       
         for (int j = 0; j < 4; j++)
           {
-            const Point2d & p = points.Get( (*this)[j] );
-            pmat(0, j) = p.X();
-            pmat(1, j) = p.Y();
+            const auto& p = points.Get( (*this)[j] );
+            pmat(0, j) = p[0];
+            pmat(1, j) = p[1];
           }
 
         vmat = 0.0;
-        vmat(0, pi-1) = dir.X();
-        vmat(1, pi-1) = dir.Y();
+        vmat(0, pi-1) = dir[0];
+        vmat(1, pi-1) = dir[1];
       
         double err = 0;
         dd = 0;
@@ -820,8 +814,8 @@ namespace netgen
     GetPointMatrix (points, pmat);
   
     vmat = 0.0;
-    vmat.Elem(1, pi) = dir.X();
-    vmat.Elem(2, pi) = dir.Y();
+    vmat.Elem(1, pi) = dir[0];
+    vmat.Elem(2, pi) = dir[1];
 
 
     double err = 0;
@@ -885,9 +879,9 @@ namespace netgen
 
     for (i = 1; i <= GetNP(); i++)
       {
-        Point3d p = points.Get(PNum(i));
-        pmat.Elem(1, i) = p.X() * t1(0) + p.Y() * t1(1) + p.Z() * t1(2);
-        pmat.Elem(2, i) = p.X() * t2(0) + p.Y() * t2(1) + p.Z() * t2(2);
+        const auto& p = points[PNum(i)];
+        pmat.Elem(1, i) = p[0] * t1(0) + p[1] * t1(1) + p[2] * t1(2);
+        pmat.Elem(2, i) = p[0] * t2(0) + p[1] * t2(1) + p[2] * t2(2);
       }
 
     double err = 0;
@@ -927,10 +921,10 @@ namespace netgen
     for (int i = 1; i <= GetNIP(); i++)
       {
         IntegrationPointData * ipd = new IntegrationPointData;
-        Point2d hp;
+        Point<2> hp;
         GetIntegrationPoint (i, hp, ipd->weight);
-        ipd->p(0) = hp.X();
-        ipd->p(1) = hp.Y();
+        ipd->p(0) = hp[0];
+        ipd->p(1) = hp[1];
         ipd->p(2) = 0;
 
         ipd->shape.SetSize(GetNP());
@@ -1006,9 +1000,8 @@ namespace netgen
   Element :: Element (int anp)
   {
     np = anp;
-    int i;
-    for (i = 0; i < ELEMENT_MAXPOINTS; i++)
-      pnum[i] = 0;
+    for (int i = 0; i < ELEMENT_MAXPOINTS; i++)
+        pnum[i].Invalidate();
     index = 0;
     flags.marked = 1;
     flags.badel = 0;
@@ -1057,9 +1050,8 @@ namespace netgen
   {
     SetType (type);
 
-    int i;
-    for (i = 0; i < ELEMENT_MAXPOINTS; i++)
-      pnum[i] = 0;
+    for (int i = 0; i < ELEMENT_MAXPOINTS; i++)
+        pnum[i].Invalidate();
     index = 0;
     flags.marked = 1;
     flags.badel = 0;
@@ -1140,6 +1132,7 @@ namespace netgen
       default: break;
         cerr << "Element::SetType unknown type  " << int(typ) << endl;
       }
+    is_curved = (np > 4); 
   }
 
 
@@ -1179,17 +1172,17 @@ namespace netgen
 
   void Element :: GetBox (const T_POINTS & points, Box3d & box) const
   {
-    box.SetPoint (points.Get(PNum(1)));
-    box.AddPoint (points.Get(PNum(2)));
-    box.AddPoint (points.Get(PNum(3)));
-    box.AddPoint (points.Get(PNum(4)));
+    box.SetPoint (points[PNum(1)]);
+    box.AddPoint (points[PNum(2)]);
+    box.AddPoint (points[PNum(3)]);
+    box.AddPoint (points[PNum(4)]);
   }
 
   double Element :: Volume (const T_POINTS & points) const
   {
-    Vec<3> v1 = points.Get(PNum(2)) - points.Get(PNum(1));
-    Vec<3> v2 = points.Get(PNum(3)) - points.Get(PNum(1));
-    Vec<3> v3 = points.Get(PNum(4)) - points.Get(PNum(1)); 
+    Vec<3> v1 = points[PNum(2)] - points[PNum(1)];
+    Vec<3> v2 = points[PNum(3)] - points[PNum(1)];
+    Vec<3> v3 = points[PNum(4)] - points[PNum(1)]; 
   
     return -(Cross (v1, v2) * v3) / 6;	 
   }  
@@ -1282,7 +1275,7 @@ namespace netgen
 
 
 
-  void Element :: GetTets (Array<Element> & locels) const
+  void Element :: GetTets (NgArray<Element> & locels) const
   {
     GetTetsLocal (locels);
     int i, j;
@@ -1291,7 +1284,7 @@ namespace netgen
         locels.Elem(i).PNum(j) = PNum ( locels.Elem(i).PNum(j) );
   }
 
-  void Element :: GetTetsLocal (Array<Element> & locels) const
+  void Element :: GetTetsLocal (NgArray<Element> & locels) const
   {
     int i, j;
     locels.SetSize(0);
@@ -1399,7 +1392,7 @@ namespace netgen
 
 
 #ifdef OLD
-  void Element :: GetNodesLocal (Array<Point3d> & points) const
+  void Element :: GetNodesLocal (NgArray<Point3d> & points) const
   {
     const static double tetpoints[4][3] =
       { { 0, 0, 0 },
@@ -1499,7 +1492,7 @@ namespace netgen
 
 
 
-  void Element :: GetNodesLocalNew (Array<Point<3> > & points) const
+  void Element :: GetNodesLocalNew (NgArray<Point<3> > & points) const
   {
     const static double tetpoints[4][3] =
       {      
@@ -1616,7 +1609,7 @@ namespace netgen
 
 
 
-  void Element :: GetSurfaceTriangles (Array<Element2d> & surftrigs) const
+  void Element :: GetSurfaceTriangles (NgArray<Element2d> & surftrigs) const
   {
     static int tet4trigs[][3] = 
       { { 2, 3, 4 },
@@ -1729,8 +1722,8 @@ namespace netgen
 
 
 
-  Array< shared_ptr < IntegrationPointData > > ipdtet;
-  Array< shared_ptr < IntegrationPointData > > ipdtet10;
+  NgArray< shared_ptr < IntegrationPointData > > ipdtet;
+  NgArray< shared_ptr < IntegrationPointData > > ipdtet10;
 
 
 
@@ -1835,8 +1828,6 @@ namespace netgen
 
   void Element :: GetShape (const Point<3> & hp, Vector & shape) const
   {
-    Point3d p = hp;
-
     if (shape.Size() != GetNP())
       {
         cerr << "Element::GetShape: Length not fitting" << endl;
@@ -1847,18 +1838,18 @@ namespace netgen
       {
       case TET:
         {
-          shape(0) = 1 - p.X() - p.Y() - p.Z(); 
-          shape(1) = p.X();
-          shape(2) = p.Y();
-          shape(3) = p.Z();
+          shape(0) = 1 - hp[0] - hp[1] - hp[2]; 
+          shape(1) = hp[0];
+          shape(2) = hp[1];
+          shape(3) = hp[2];
           break;
         }
       case TET10:
         {
-          double lam1 = 1 - p.X() - p.Y() - p.Z();
-          double lam2 = p.X();
-          double lam3 = p.Y();
-          double lam4 = p.Z();
+          double lam1 = 1 - hp[0] - hp[1] - hp[2];
+          double lam2 = hp[0];
+          double lam3 = hp[1];
+          double lam4 = hp[2];
 	
           shape(4) = 4 * lam1 * lam2;
           shape(5) = 4 * lam1 * lam3;
@@ -1876,7 +1867,6 @@ namespace netgen
 
       case PRISM:
         {
-          Point<3> hp = p; 
           shape(0) = hp(0) * (1-hp(2));
           shape(1) = hp(1) * (1-hp(2));
           shape(2) = (1-hp(0)-hp(1)) * (1-hp(2));
@@ -1887,7 +1877,6 @@ namespace netgen
         }
       case HEX:
         {
-          Point<3> hp = p; 
           shape(0) = (1-hp(0))*(1-hp(1))*(1-hp(2));
           shape(1) = (  hp(0))*(1-hp(1))*(1-hp(2));
           shape(2) = (  hp(0))*(  hp(1))*(1-hp(2));
@@ -2078,8 +2067,6 @@ namespace netgen
   void Element :: 
   GetDShape (const Point<3> & hp, DenseMatrix & dshape) const
   {
-    Point3d p = hp;
-
     int np = GetNP();
     if (dshape.Height() != 3 || dshape.Width() != np)
       {
@@ -2090,16 +2077,16 @@ namespace netgen
     double eps = 1e-6;
     Vector shaper(np), shapel(np);
 
-    for (int i = 1; i <= 3; i++)
+    for (auto i : Range(3))
       {
-        Point3d pr(p), pl(p);
-        pr.X(i) += eps;
-        pl.X(i) -= eps;
+        Point<3> pr(hp), pl(hp);
+        pr[i] += eps;
+        pl[i] -= eps;
       
         GetShape (pr, shaper);
         GetShape (pl, shapel);
         for (int j = 0; j < np; j++)
-          dshape(i-1, j) = (shaper(j) - shapel(j)) / (2 * eps);
+          dshape(i, j) = (shaper(j) - shapel(j)) / (2 * eps);
       }
   }
 
@@ -2145,7 +2132,7 @@ namespace netgen
         {
           int np = GetNP();
           double eps = 1e-6;
-          ArrayMem<T,100> mem(2*np);
+          NgArrayMem<T,100> mem(2*np);
           TFlatVector<T> shaper(np, &mem[0]);
           TFlatVector<T> shapel(np, &mem[np]);
           // Vector shaper(np), shapel(np);
@@ -2186,10 +2173,10 @@ namespace netgen
     int np = GetNP();
     for (int i = 1; i <= np; i++)
       {
-        const Point3d & p = points.Get(PNum(i));
-        pmat.Elem(1, i) = p.X();
-        pmat.Elem(2, i) = p.Y();
-        pmat.Elem(3, i) = p.Z();
+        const auto& p = points[PNum(i)];
+        pmat.Elem(1, i) = p[0];
+        pmat.Elem(2, i) = p[1];
+        pmat.Elem(3, i) = p[2];
       }
   }
 
@@ -2520,8 +2507,7 @@ namespace netgen
   void FaceDescriptor :: DoArchive (Archive & ar)
   {
     ar & surfnr & domin & domout & tlosurf & bcprop
-      & surfcolour.X() & surfcolour.Y() & surfcolour.Z()
-      & bcname   
+      & surfcolour & bcname   
       & domin_singular & domout_singular ;
       // don't need:  firstelement
   }
@@ -2649,7 +2635,7 @@ namespace netgen
   }
 
 
-  void Identifications :: GetMap (int identnr, Array<int,PointIndex::BASE> & identmap, bool symmetric) const
+  void Identifications :: GetMap (int identnr, NgArray<int,PointIndex::BASE> & identmap, bool symmetric) const
   {
     identmap.SetSize (mesh.GetNP());
     identmap = 0;
@@ -2687,7 +2673,7 @@ namespace netgen
 
 
   void Identifications :: GetPairs (int identnr, 
-                                    Array<INDEX_2> & identpairs) const
+                                    NgArray<INDEX_2> & identpairs) const
   {
     identpairs.SetSize(0);
   
@@ -2815,7 +2801,9 @@ namespace netgen
         << " elementorder = " <<  elementorder << endl
         << " quad = " <<  quad << endl
         << " inverttets = " <<  inverttets << endl
-        << " inverttrigs = " <<  inverttrigs << endl;
+        << " inverttrigs = " <<  inverttrigs << endl
+        << "closeedge enabled = " << closeedgefac.has_value() << endl
+        << "closeedgefac = " << closeedgefac.value_or(0.) << endl;
   }
 
   /*

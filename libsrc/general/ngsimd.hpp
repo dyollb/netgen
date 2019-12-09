@@ -13,6 +13,8 @@
 #include <string>
 #include <type_traits>
 
+#include <core/utils.hpp>
+
 #ifdef WIN32
 #ifndef AVX_OPERATORS_DEFINED
 #define AVX_OPERATORS_DEFINED
@@ -48,7 +50,6 @@ NG_INLINE __m256d operator/= (__m256d &a, __m256d b) { return a = a/b; }
 
 namespace ngsimd
 {
-
   // MSVC does not define SSE. It's always present on 64bit cpus
 #if (defined(_M_AMD64) || defined(_M_X64) || defined(__AVX__))
 #ifndef __SSE__
@@ -120,42 +121,6 @@ namespace ngsimd
   template<int N, typename T, typename std::enable_if<std::is_arithmetic<T>::value, int>::type = 0>
     NG_INLINE SIMD<double,N> operator/ (SIMD<double,N> a, T b) { return a / SIMD<double,N>(b); }
 
-
-#ifdef __AVX__
-  template <typename T>
-  class AlignedAlloc
-  {
-    protected:
-      static void * aligned_malloc(size_t s)
-      {
-        // Assume 16 byte alignment of standard library
-        if(alignof(T)<=16)
-            return malloc(s);
-        else
-            return  _mm_malloc(s, alignof(T));
-      }
-
-      static void aligned_free(void *p)
-      {
-        if(alignof(T)<=16)
-            free(p);
-        else
-            _mm_free(p);
-      }
-
-  public:
-    void * operator new (size_t s, void *p) { return p; }
-    void * operator new (size_t s) { return aligned_malloc(s); }
-    void * operator new[] (size_t s) { return aligned_malloc(s); }
-    void operator delete (void * p) { aligned_free(p); }
-    void operator delete[] (void * p) { aligned_free(p); }
-  };
-#else
-  // it's only a dummy without AVX
-  template <typename T>
-  class AlignedAlloc { ; };
-
-#endif
 
 using std::sqrt;
 using std::fabs;
@@ -293,7 +258,7 @@ using std::fabs;
 /////////////////////////////////////////////////////////////////////////////
 #ifdef __SSE__
   template<>
-  class alignas(16) SIMD<double,2> //  : public AlignedAlloc<SIMD<double,4>>
+  class alignas(16) SIMD<double,2>
   {
     __m128d data;
 
@@ -393,7 +358,7 @@ using std::fabs;
 /////////////////////////////////////////////////////////////////////////////
 #ifdef __AVX__
   template<>
-  class alignas(32) SIMD<double,4> : public AlignedAlloc<SIMD<double,4>>
+  class alignas(32) SIMD<double,4>
   {
     __m256d data;
 
@@ -490,7 +455,7 @@ using std::fabs;
 /////////////////////////////////////////////////////////////////////////////
 #ifdef __AVX512F__
   template<>
-  class alignas(64) SIMD<double,8> : public AlignedAlloc<SIMD<double,8>>
+  class alignas(64) SIMD<double,8>
   {
     __m512d data;
 
@@ -592,7 +557,7 @@ using std::fabs;
 // MultiSIMD - Multiple SIMD values in one struct using head-tail implementation
 ////////////////////////////////////////////////////////////////////////////////
   template <int D, typename T>
-  class MultiSIMD : public AlignedAlloc<MultiSIMD<D,T>>
+  class MultiSIMD
   {
     SIMD<T> head;
     MultiSIMD<D-1,T> tail;
@@ -617,7 +582,7 @@ using std::fabs;
   };
 
   template <typename T>
-  class MultiSIMD<2,T> : public AlignedAlloc<MultiSIMD<2,T>>
+  class MultiSIMD<2,T>
   {
     SIMD<T> v0, v1;
   public:

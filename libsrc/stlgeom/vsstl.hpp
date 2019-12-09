@@ -12,13 +12,13 @@ namespace netgen
 
  class VisualSceneSTLGeometry : public VisualScene
   {
-    Array<int> trilists;
+    NgArray<int> trilists;
     class STLGeometry * stlgeometry;
 
   public:
     DLL_HEADER VisualSceneSTLGeometry ();
 	DLL_HEADER virtual ~VisualSceneSTLGeometry ();
-	DLL_HEADER void SetGeometry (class STLGeometry * astlgeometry) { stlgeometry = astlgeometry; }
+	void SetGeometry (class STLGeometry * astlgeometry) { stlgeometry = astlgeometry; }
 
 	DLL_HEADER virtual void BuildScene (int zoomall = 0);
 	DLL_HEADER virtual void DrawScene ();
@@ -27,7 +27,7 @@ namespace netgen
 
   class VisualSceneSTLMeshing : public VisualScene
   {
-    Array<int> trilists;
+    NgArray<int> trilists;
     int selecttrig, nodeofseltrig;
     class STLGeometry * stlgeometry;
 

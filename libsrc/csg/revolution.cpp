@@ -52,13 +52,13 @@ namespace netgen
   }
 
 
-  RevolutionFace :: RevolutionFace(const Array<double> & raw_data)
+  RevolutionFace :: RevolutionFace(const NgArray<double> & raw_data)
   {
     deletable = true;
     
     int pos = 0;
 
-    Array< Point<2> > p(3);
+    NgArray< Point<2> > p(3);
 
     int stype = int(raw_data[pos]); pos++;
 
@@ -305,6 +305,7 @@ namespace netgen
       }
     else
       {
+        hesse = 0;
 	(*testout) << "hesse4: " << hesse <<endl;
       }
   }
@@ -332,7 +333,7 @@ namespace netgen
   {
     double retval = spline->MaxCurvature();
 
-    Array < Point<2> > checkpoints;
+    NgArray < Point<2> > checkpoints;
 
     const SplineSeg3<2> * ss3 = dynamic_cast<const SplineSeg3<2> *>(spline);
     const LineSeg<2> * ls = dynamic_cast<const LineSeg<2> *>(spline);
@@ -385,7 +386,7 @@ namespace netgen
 
 
     // find smallest y value of spline:
-    Array<double> testt;
+    NgArray<double> testt;
 
     if(!isfirst)
       testt.Append(0);
@@ -623,7 +624,7 @@ namespace netgen
 
   
 
-  void RevolutionFace :: GetRawData(Array<double> & data) const
+  void RevolutionFace :: GetRawData(NgArray<double> & data) const
   {
     data.DeleteAll();
     spline->GetRawData(data);
@@ -717,7 +718,7 @@ namespace netgen
 	  return DOES_INTERSECT;
 	else
 	  {
-	    Array < Point<3> > pext(2);
+	    NgArray < Point<3> > pext(2);
 	    Point<3> p;
 
 	    pext[0] = box.PMin();
@@ -771,7 +772,7 @@ namespace netgen
     const double b = -randomx;
     const double c = -a*p2d(0)-b*p2d(1);
 
-    Array < Point<2> > points;
+    NgArray < Point<2> > points;
 
     //(*testout) << "face intersections at: " << endl;
     for(int i=0; i<faces.Size(); i++)
@@ -795,14 +796,14 @@ namespace netgen
 	  }
       }
 
-    if(intersections_before % 2 == 0)
+    if(intersections_after % 2 == 0)
       return IS_OUTSIDE;
     else
       return IS_INSIDE;
   }
 
   void Revolution :: GetTangentialSurfaceIndices (const Point<3> & p, 
-                                                 Array<int> & surfind, double eps) const
+                                                 NgArray<int> & surfind, double eps) const
   {
     for (int j = 0; j < faces.Size(); j++)
       if (faces[j] -> PointInFace(p, eps))
@@ -822,7 +823,7 @@ namespace netgen
 	return pInSolid;
       }
 
-    Array<int> intersecting_faces;
+    NgArray<int> intersecting_faces;
 
     for(int i=0; i<faces.Size(); i++)
       if(faces[i]->PointInFace(p,eps)) //  == DOES_INTERSECT)

@@ -81,7 +81,7 @@ namespace netgen
     transp = 0.3;
     locviewer = 0;
     showstltrias = 0;
-    centerpoint = 0;
+    centerpoint = PointIndex::INVALID;
     usedispllists = 1;
     strcpy (selectvisual, "cross");
 
@@ -202,7 +202,7 @@ namespace netgen
   }
 
 
-  void VisualScene :: ArbitraryRotation (const Array<double> & alpha, const Array<Vec3d> & vec)
+  void VisualScene :: ArbitraryRotation (const NgArray<double> & alpha, const NgArray<Vec3d> & vec)
   {
     glPushMatrix();
 
@@ -229,8 +229,8 @@ namespace netgen
 
   void VisualScene :: ArbitraryRotation (const double alpha, const Vec3d & vec)
   {
-    Array<double> a(1); a[0] = alpha;
-    Array<Vec3d> v(1); v[0] = vec;
+    NgArray<double> a(1); a[0] = alpha;
+    NgArray<Vec3d> v(1); v[0] = vec;
 
     ArbitraryRotation(a,v);
   } 
@@ -758,9 +758,26 @@ namespace netgen
   }
 
 
-
-
-
+  void VisualSceneSurfaceMeshing::MouseMove(int oldx, int oldy,
+                                            int newx, int newy,
+                                            char mode)
+  {
+    double fac = 0.001;
+    if(mode == 'M')
+      {
+        shiftx += fac * (newx - oldx);
+        shifty += fac * (oldy - newy);
+        return;
+      }
+    else if(mode == 'Z')
+      {
+        scalex *= (1 - fac * (newy - oldy));
+        scaley *= (1 - fac * (newy - oldy));
+        return;
+      }
+    
+    VisualScene::MouseMove(oldx, oldy, newx, newy, mode);
+  }
 
 
 #ifdef PARALLELGL

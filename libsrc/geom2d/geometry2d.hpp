@@ -13,7 +13,6 @@
 
 // #include "../gprim/spline.hpp"
 // #include "../gprim/splinegeometry.hpp"
-#include "geom2dmesh.hpp"
 
 namespace netgen
 {
@@ -94,7 +93,7 @@ namespace netgen
       seg->GetCoeff (coeffs);
     }
 
-    virtual void GetPoints (int n, Array<Point<2> > & points) const
+    virtual void GetPoints (int n, NgArray<Point<2> > & points) const
     {
       seg->GetPoints (n, points);
     }
@@ -131,12 +130,12 @@ namespace netgen
   class SplineGeometry2d : public SplineGeometry<2>, public NetgenGeometry
   {
   protected:
-    Array<char*> materials;
-    Array<double> maxh;
-    Array<bool> quadmeshing;
-    Array<bool> tensormeshing;
-    Array<int> layer;
-    Array<string*> bcnames;
+    NgArray<char*> materials;
+    NgArray<double> maxh;
+    NgArray<bool> quadmeshing;
+    NgArray<bool> tensormeshing;
+    NgArray<int> layer;
+    NgArray<string*> bcnames;
     double elto0 = 1.0;
 
 
@@ -151,11 +150,39 @@ namespace netgen
 
     void TestComment ( ifstream & infile ) ;
 
-    void DoArchive(Archive& ar)
+    void DoArchive(Archive& ar) override
     {
       SplineGeometry<2>::DoArchive(ar);
       ar & materials & maxh & quadmeshing & tensormeshing & layer & bcnames & elto0;
     }
+
+    bool ProjectPointGI (int surfind, Point<3> & p, PointGeomInfo & gi) const override
+    {
+      p(2) = 0.0;
+      return true;
+    }
+
+    void PointBetween(const Point<3> & p1, const Point<3> & p2, double secpoint,
+                      int surfi,
+                      const PointGeomInfo & gi1,
+                      const PointGeomInfo & gi2,
+                      Point<3> & newp, PointGeomInfo & newgi) const override
+    {
+      newp = p1+secpoint*(p2-p1);
+      newgi.trignum = 1;
+    }
+
+    void PointBetweenEdge(const Point<3> & p1, const Point<3> & p2, double secpoint,
+                          int surfi1, int surfi2,
+                          const EdgePointGeomInfo & ap1,
+                          const EdgePointGeomInfo & ap2,
+                          Point<3> & newp, EdgePointGeomInfo & newgi) const override;
+
+
+    Vec<3> GetTangent (const Point<3> & p, int surfi1, int surfi2,
+                       const EdgePointGeomInfo & ap1) const override;
+    Vec<3> GetNormal(int surfi1, const Point<3> & p,
+                     const PointGeomInfo* gi) const override;
 
     const SplineSegExt & GetSpline (const int i) const 
     { 
@@ -168,7 +195,7 @@ namespace netgen
     }
 
     
-    DLL_HEADER virtual int GenerateMesh (shared_ptr<Mesh> & mesh, MeshingParameters & mparam);
+    DLL_HEADER int GenerateMesh (shared_ptr<Mesh> & mesh, MeshingParameters & mparam) override;
     
     void PartitionBoundary (MeshingParameters & mp, double h, Mesh & mesh2d);
 
@@ -205,9 +232,6 @@ namespace netgen
     int AddBCName (string name);
 
     string * BCNamePtr ( const int bcnr );
-
-    
-    DLL_HEADER virtual Refinement & GetRefinement () const; 
   };
 }
 

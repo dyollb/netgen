@@ -16,7 +16,7 @@
 #include "vsocc.hpp"
 
 // __declspec(dllimport) void AutoColourBcProps(Mesh & mesh, const char *bccolourfile);
-// __declspec(dllimport) void GetFaceColours(Mesh & mesh, Array<Vec3d> & face_colours);
+// __declspec(dllimport) void GetFaceColours(Mesh & mesh, NgArray<Vec3d> & face_colours);
 // __declspec(dllimport) bool ColourMatch(Vec3d col1, Vec3d col2, double eps = 2.5e-05);
 
 extern "C" int Ng_occ_Init (Tcl_Interp * interp);
@@ -27,6 +27,8 @@ namespace netgen
 {
   extern DLL_HEADER shared_ptr<NetgenGeometry> ng_geometry;
   extern DLL_HEADER shared_ptr<Mesh> mesh;
+  extern DLL_HEADER MeshingParameters mparam;
+  extern DLL_HEADER OCCParameters occparam;
  
   char * err_needsoccgeometry = (char*) "This operation needs an OCC geometry";
   extern char * err_needsmesh;
@@ -43,14 +45,12 @@ namespace netgen
 
     virtual void SetParameters (Tcl_Interp * interp) 
     {
-      occparam.resthcloseedgefac =
-	atof (Tcl_GetVar (interp, "::stloptions.resthcloseedgefac", 0));
-      occparam.resthcloseedgeenable =
-	atoi (Tcl_GetVar (interp, "::stloptions.resthcloseedgeenable", 0));
-	  occparam.resthminedgelen = 
+      occparam.resthminedgelen = 
 	atof (Tcl_GetVar (interp, "::stloptions.resthminedgelen", 0));
 	  occparam.resthminedgelenenable = 
 	atoi (Tcl_GetVar (interp, "::stloptions.resthminedgelenenable", 0));
+      if(auto geo = dynamic_pointer_cast<OCCGeometry>(ng_geometry); geo)
+        geo->SetOCCParameters(occparam);
     }
   };
 
@@ -588,7 +588,7 @@ namespace netgen
     {
            if(!occgeometry->GetFaceMaxhModified(i))
            {
-              occgeometry->SetFaceMaxH(i, mparam.maxh);
+             occgeometry->SetFaceMaxH(i, mparam.maxh, mparam);
            }   
     }
 
@@ -597,7 +597,7 @@ namespace netgen
 	   int facenr = atoi (argv[2]);
 	   double surfms = atof (argv[3]);
 	   if (occgeometry && facenr >= 1 && facenr <= occgeometry->NrFaces())
-	     occgeometry->SetFaceMaxH(facenr, surfms);
+	     occgeometry->SetFaceMaxH(facenr, surfms, mparam);
 
     }
 
@@ -608,7 +608,7 @@ namespace netgen
 	   {
 	     int nrFaces = occgeometry->NrFaces();
 	     for (int i = 1; i <= nrFaces; i++)
-	      occgeometry->SetFaceMaxH(i, surfms);
+               occgeometry->SetFaceMaxH(i, surfms, mparam);
 	   }
     }
 
@@ -686,7 +686,7 @@ namespace netgen
      if(strcmp(argv[1], "getcolours") == 0)
      {
         stringstream outVar;
-        Array<Vec3d> face_colours;
+        NgArray<Vec3d> face_colours;
         GetFaceColours(*mesh, face_colours);
 
         for(int i = 0; i < face_colours.Size();i++)
@@ -703,14 +703,14 @@ namespace netgen
 
      if(strcmp(argv[1], "showalso") == 0)
      {
-        Array<Vec3d> face_colours;
+        NgArray<Vec3d> face_colours;
         GetFaceColours(*mesh,face_colours);
 
         int colourind = atoi (argv[2]);
 
         for(int i = 1; i <= mesh->GetNFD(); i++)
         {
-           Array<SurfaceElementIndex> surfElems;
+          Array<SurfaceElementIndex> surfElems;
            mesh->GetSurfaceElementsOfFace(i,surfElems);
 
            if(ColourMatch(face_colours[colourind],mesh->GetFaceDescriptor(i).SurfColour()))
@@ -727,7 +727,7 @@ namespace netgen
 
      if(strcmp(argv[1], "hidealso") == 0)
      {
-        Array<Vec3d> face_colours;
+        NgArray<Vec3d> face_colours;
         GetFaceColours(*mesh,face_colours);
 
         int colourind = atoi (argv[2]);
@@ -751,7 +751,7 @@ namespace netgen
 
      if(strcmp(argv[1], "showonly") == 0)
      {
-        Array<Vec3d> face_colours;
+        NgArray<Vec3d> face_colours;
         GetFaceColours(*mesh,face_colours);
 
         int colourind = atoi (argv[2]);
@@ -782,7 +782,7 @@ namespace netgen
 
      if(strcmp(argv[1], "hideonly") == 0)
      {
-        Array<Vec3d> face_colours;
+       NgArray<Vec3d> face_colours;
         GetFaceColours(*mesh,face_colours);
 
         int colourind = atoi (argv[2]);

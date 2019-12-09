@@ -62,7 +62,7 @@ namespace netgen
   }
 
   NgMPI_Comm Ngx_Mesh :: GetCommunicator() const
-  { return Valid() ? mesh->GetCommunicator() : NgMPI_Comm(MPI_COMM_NULL); }
+  { return Valid() ? mesh->GetCommunicator() : NgMPI_Comm{}; }
 
   void Ngx_Mesh :: SaveMesh (ostream & ost) const
   {
@@ -130,7 +130,15 @@ namespace netgen
 
   int Ngx_Mesh :: GetNLevels() const
   {
-    return mesh -> mglevels;
+    return max(size_t(1), mesh -> level_nv.Size());
+  }
+
+  size_t Ngx_Mesh :: GetNVLevel(int level) const
+  {
+    if (level >= mesh->level_nv.Size())
+      return mesh->GetNV();
+    else
+      return mesh->level_nv[level];
   }
   
   int Ngx_Mesh :: GetNElements (int dim) const
@@ -756,7 +764,7 @@ namespace netgen
   Ng_BufferMS<int,4> Ngx_Mesh::GetFaceEdges (int fnr) const
   {
     const MeshTopology & topology = mesh->GetTopology();
-    ArrayMem<int,4> ia;
+    NgArrayMem<int,4> ia;
     topology.GetFaceEdges (fnr+1, ia);
     Ng_BufferMS<int,4> res(ia.Size());
     for (size_t i = 0; i < ia.Size(); i++)
@@ -1070,7 +1078,7 @@ namespace netgen
    int * const indices, int numind) const
 
   {
-    Array<int> dummy(numind);
+    NgArray<int> dummy(numind);
     for (int i = 0; i < numind; i++) dummy[i] = indices[i]+1;
     
     double lam3[3];
@@ -1089,7 +1097,7 @@ namespace netgen
     
     if (ind > 0)
       {
-        if(mesh->SurfaceElement(ind).GetType()==QUAD)
+        if(mesh->SurfaceElement(ind).GetType()==QUAD || mesh->SurfaceElement(ind).GetType()==TRIG6)
           {
             lami[0] = lam3[0];
             lami[1] = lam3[1];
@@ -1111,7 +1119,7 @@ namespace netgen
    int * const indices, int numind) const
 
   {
-    Array<int> dummy(numind);
+    NgArray<int> dummy(numind);
     for (int i = 0; i < numind; i++) dummy[i] = indices[i]+1;
     
     Point<3> p3d(p[0], p[1], p[2]);
@@ -1155,10 +1163,8 @@ namespace netgen
       biopt.refine_hp = 1;
     biopt.task_manager = task_manager;
     biopt.tracer = tracer;
-    
-    const Refinement & ref = mesh->GetGeometry()->GetRefinement();
-    ref.Bisect (*mesh, biopt);
 
+    mesh->GetGeometry()->GetRefinement().Bisect (*mesh, biopt);
     (*tracer)("call updatetop", false);
     mesh -> UpdateTopology(task_manager, tracer);
     (*tracer)("call updatetop", true);
@@ -1291,17 +1297,17 @@ void Ngx_Mesh::SetSurfaceElementOrders (int enr, int ox, int oy)
       {
       case 0:
 	{
-	  FlatArray<int> dn = mesh->GetParallelTopology().GetDistantPNums(locnum);
+	  NgFlatArray<int> dn = mesh->GetParallelTopology().GetDistantPNums(locnum);
 	  return std::tuple<int,int*>(dn.Size(), &dn[0]);
 	}
       case 1:
 	{
-	  FlatArray<int> dn = mesh->GetParallelTopology().GetDistantEdgeNums(locnum);
+	  NgFlatArray<int> dn = mesh->GetParallelTopology().GetDistantEdgeNums(locnum);
 	  return std::tuple<int,int*>(dn.Size(), &dn[0]);
 	}
       case 2:
 	{
-	  FlatArray<int> dn = mesh->GetParallelTopology().GetDistantFaceNums(locnum);
+	  NgFlatArray<int> dn = mesh->GetParallelTopology().GetDistantFaceNums(locnum);
 	  return std::tuple<int,int*>(dn.Size(), &dn[0]);
 	}
       default:

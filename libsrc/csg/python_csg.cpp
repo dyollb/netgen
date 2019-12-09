@@ -1,7 +1,9 @@
 #ifdef NG_PYTHON
 
 #include <../general/ngpython.hpp>
+#include <core/python_ngcore.hpp>
 #include <csg.hpp>
+#include "../meshing/python_mesh.hpp"
 
 
 using namespace netgen;
@@ -27,9 +29,11 @@ class SPSolid
   double red = 0, green = 0, blue = 1;
   bool transp = false;
 public:
-  enum optyp { TERM, SECTION, UNION, SUB };
+  enum optyp { TERM, SECTION, UNION, SUB, EXISTING };
 
   SPSolid (Solid * as) : solid(as), owner(true), op(TERM) { ; }
+  SPSolid (Solid * as, int /*dummy*/)
+    : solid(as), owner(false), op(EXISTING) { ; }
   ~SPSolid () 
   {
     ; // if (owner) delete solid;
@@ -208,10 +212,10 @@ DLL_HEADER void ExportCSG(py::module &m)
 
   py::class_<SplineSurface, shared_ptr<SplineSurface>> (m, "SplineSurface",
                         "A surface for co dim 2 integrals on the splines")
-    .def("__init__", FunctionPointer  ([](SplineSurface* instance, shared_ptr<SPSolid> base, py::list cuts)
+    .def(py::init([](shared_ptr<SPSolid> base, py::list cuts)
 	     {
 	       auto primitive = dynamic_cast<OneSurfacePrimitive*> (base->GetSolid()->GetPrimitive());
-	       auto acuts = make_shared<Array<shared_ptr<OneSurfacePrimitive>>>();
+	       auto acuts = make_shared<NgArray<shared_ptr<OneSurfacePrimitive>>>();
 	       for(int i = 0; i<py::len(cuts);i++)
 		 {
 		   py::extract<shared_ptr<SPSolid>> sps(cuts[i]);
@@ -221,12 +225,11 @@ DLL_HEADER void ExportCSG(py::module &m)
 		   if(sp)
 		     acuts->Append(shared_ptr<OneSurfacePrimitive>(sp));
 		   else
-		     throw NgException("Cut must be SurfacePrimitive in constructor of SplineSurface!");
+		     throw Exception("Cut must be SurfacePrimitive in constructor of SplineSurface!");
 		 }
 	       if(!primitive)
-		 throw NgException("Base is not a SurfacePrimitive in constructor of SplineSurface!");
-	       new (instance) SplineSurface(shared_ptr<OneSurfacePrimitive>(primitive),acuts);
-               py::object obj = py::cast(instance);
+		 throw Exception("Base is not a SurfacePrimitive in constructor of SplineSurface!");
+	       return make_shared<SplineSurface>(shared_ptr<OneSurfacePrimitive>(primitive),acuts);
 	     }),py::arg("base"), py::arg("cuts")=py::list())
     .def("AddPoint", FunctionPointer
 	 ([] (SplineSurface & self, double x, double y, double z, bool hpref)
@@ -409,7 +412,7 @@ However, when r = 0, the top part becomes a point(tip) and meshing fails!
                 if (py::extract<int>(val).check()) mod_nr = py::extract<int> (val)();
                 if (py::extract<string>(val).check()) bcname = new string ( py::extract<string> (val)());
 
-                Array<int> si;
+                NgArray<int> si;
                 mod_solid -> GetSolid() -> GetSurfaceIndices (si);
                 // cout << "change bc on surfaces: " << si << " to " << mod_nr << endl;
 
@@ -459,7 +462,7 @@ However, when r = 0, the top part becomes a point(tip) and meshing fails!
 	    self.GetTopLevelObject(tlonr) -> SetBCProp(surf->GetBase()->GetBCProperty());
 	    self.GetTopLevelObject(tlonr) -> SetBCName(surf->GetBase()->GetBCName());
 	    self.GetTopLevelObject(tlonr) -> SetMaxH(surf->GetBase()->GetMaxH());
-            Array<Point<3>> non_midpoints;
+            NgArray<Point<3>> non_midpoints;
             for(auto spline : surf->GetSplines())
               {
                 non_midpoints.Append(spline->GetPoint(0));
@@ -494,7 +497,7 @@ However, when r = 0, the top part becomes a point(tip) and meshing fails!
     .def("CloseSurfaces", FunctionPointer
          ([] (CSGeometry & self, shared_ptr<SPSolid> s1, shared_ptr<SPSolid> s2, py::list aslices )
           {
-            Array<int> si1, si2;
+            NgArray<int> si1, si2;
             s1->GetSolid()->GetSurfaceIndices (si1);
             s2->GetSolid()->GetSurfaceIndices (si2);
             cout << "surface ids1 = " << si1 << endl;
@@ -531,7 +534,7 @@ However, when r = 0, the top part becomes a point(tip) and meshing fails!
          ([] (CSGeometry & self, shared_ptr<SPSolid> s1, shared_ptr<SPSolid> s2,
               int reflevels, shared_ptr<SPSolid> domain_solid)
           {
-            Array<int> si1, si2;
+            NgArray<int> si1, si2;
             s1->GetSolid()->GetSurfaceIndices (si1);
             s2->GetSolid()->GetSurfaceIndices (si2);
             cout << "surface ids1 = " << si1 << endl;
@@ -556,7 +559,7 @@ However, when r = 0, the top part becomes a point(tip) and meshing fails!
          ([] (CSGeometry & self, shared_ptr<SPSolid> s1, shared_ptr<SPSolid> s2,
               Transformation<3> trafo)
           {
-            Array<int> si1, si2;
+            NgArray<int> si1, si2;
             s1->GetSolid()->GetSurfaceIndices (si1);
             s2->GetSolid()->GetSurfaceIndices (si2);
             cout << "identify surfaces " << si1[0] << " and " << si2[0] << endl;
@@ -620,6 +623,13 @@ However, when r = 0, the top part becomes a point(tip) and meshing fails!
              ng_geometry = self;
           })
          )
+    .def("GetSolids", [](CSGeometry& self)
+                      {
+                        py::list lst;
+                        for(auto i : Range(self.GetSolids().Size()))
+                          lst.append(make_shared<SPSolid>(self.GetSolids()[i], 1234));
+                        return lst;
+                      })
     .def_property_readonly ("ntlo", &CSGeometry::GetNTopLevelObjects)
     .def("_visualizationData", [](shared_ptr<CSGeometry> csg_geo)
          {
@@ -683,26 +693,27 @@ However, when r = 0, the top part becomes a point(tip) and meshing fails!
            res["max"] = MoveToNumpy(max);
            return res;
          }, py::call_guard<py::gil_scoped_release>())
-    ;
-
-  m.def("GenerateMesh", FunctionPointer
-          ([](shared_ptr<CSGeometry> geo, MeshingParameters & param)
+  .def("GenerateMesh", [](shared_ptr<CSGeometry> geo,
+                          MeshingParameters* pars, py::kwargs kwargs)
            {
-             auto dummy = make_shared<Mesh>();
-             SetGlobalMesh (dummy);
-             dummy->SetGeometry(geo);
+             MeshingParameters mp;
+             if(pars) mp = *pars;
+             {
+               py::gil_scoped_acquire aq;
+               CreateMPfromKwargs(mp, kwargs);
+             }
+             auto mesh = make_shared<Mesh>();
+             SetGlobalMesh (mesh);
+             mesh->SetGeometry(geo);
 	     ng_geometry = geo;
              geo->FindIdenticSurfaces(1e-8 * geo->MaxSize());
-             try
-               {
-                 geo->GenerateMesh (dummy, param);
-               }
-             catch (NgException ex)
-               {
-                 cout << "Caught NgException: " << ex.What() << endl;
-               }
-             return dummy;
-           }),py::call_guard<py::gil_scoped_release>())
+             auto result = geo->GenerateMesh (mesh, mp);
+             if(result != 0)
+               throw Exception("Meshing failed!");
+             return mesh;
+           }, py::arg("mp") = nullptr,
+       meshingparameter_description.c_str(),
+    py::call_guard<py::gil_scoped_release>())
     ;
 
   m.def("Save", FunctionPointer 

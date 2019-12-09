@@ -4,11 +4,10 @@
 
 
 #include <mystdlib.h>
-
-
 #include <myadt.hpp>
 #include <linalg.hpp>
 #include <csg.hpp>
+#include <stlgeom.hpp>
 #include <meshing.hpp>
 
 #include "writeuser.hpp"
@@ -18,7 +17,7 @@ namespace netgen
   void ReadFile (Mesh & mesh,
                  const string & hfilename)
   {
-    cout << "Read User File" << endl;
+    PrintMessage(3, "Read User File");
 
     const char * filename = hfilename.c_str();
 
@@ -95,14 +94,20 @@ namespace netgen
 
         mesh.ClearFaceDescriptors();
         mesh.AddFaceDescriptor (FaceDescriptor(0,1,0,0));
+        mesh.GetFaceDescriptor(1).SetBCProperty (1);
+        // map from unv element nr to our element number + an index if it is vol (0), bnd(1), ...
+        std::map<size_t, std::tuple<size_t, int>> element_map;
+	int dim = 3;
+	int bccounter = 0;
 
-
+        NgArray<Segment> tmp_segments;
         while (in.good())
           {
             in >> reco;
-	    cout << "reco = " << reco << endl;
+            if (strcmp(reco, "-1") == 0)
+              continue;
 
-            if (strcmp (reco, "2411") == 0)
+            else if (strcmp (reco, "2411") == 0)
               {
                 cout << "nodes found" << endl;
 
@@ -118,15 +123,21 @@ namespace netgen
                     in >> hi >> hi >> hi;
                     in >> p(0) >> p(1) >> p(2);
 
-		    cout << "p(" << pi << ") = "
-			 << p << endl;
-
                     mesh.AddPoint (p);
                   }
 		cout << "read " << mesh.GetNP() << " points" << endl;
+                Point3d pmin, pmax;
+                mesh.GetBox (pmin, pmax);
+                if(fabs(pmin.Z() - pmax.Z()) < 1e-10 * Dist(pmin, pmax))
+                {
+                       cout << "Set Dimension to 2." << endl;
+                       mesh.SetDimension(2);
+                       dim = 2 ;
+		}
+
               }
 
-            if (strcmp (reco, "2412") == 0)
+            else if (strcmp (reco, "2412") == 0)
               {
                 cout << "elements found" << endl;
 
@@ -140,8 +151,6 @@ namespace netgen
 		    if (label == -1) break;
 		    in >> fe_id >> phys_prop >> mat_prop >> color >> nnodes;
 		    
-		    cout << "fe_id = " << fe_id << " col = " << color << ", nnodes = " << nnodes << endl;
-
 		    if (fe_id >= 11 && fe_id <= 32)
 		      in >> hi >> hi >> hi;
 		      
@@ -151,35 +160,253 @@ namespace netgen
 		    
 		    switch (fe_id)
 		      {
-		      case 41:
+                      case 11: // (Rod) SEGM
+                        {
+                          Segment el;
+                          el[0] = nodes[0];
+                          el[1] = nodes[1];
+                          el[2] = -1;
+
+                          if(dim == 3){
+                            auto nr = tmp_segments.Size();
+                            tmp_segments.Append(el);
+                            element_map[label] = std::make_tuple(nr+1, 2);
+                          }
+                          else if(dim == 2){
+		            el.si = -1; // add label to segment, will be changed later when BC's are assigned
+                            auto nr = mesh.AddSegment(el);
+                            element_map[label] = std::make_tuple(nr+1, 2);
+                          }
+                          break;
+                        }
+
+                      case 22: // (Tapered beam) SEGM
+                        {
+                          Segment el;
+                          el[0] = nodes[0];
+                          el[1] = nodes[2];
+                          el[2] = nodes[1];
+                          
+                          if(dim == 3){
+                            auto nr = tmp_segments.Size();
+                            tmp_segments.Append(el);
+                            element_map[label] = std::make_tuple(nr+1, 2);
+                          }
+                          else if(dim == 2){
+		            el.si = -1; // add label to segment, will be changed later when BC's are assigned
+                            auto nr = mesh.AddSegment(el);
+                            element_map[label] = std::make_tuple(nr+1, 2);
+                          }
+
+                          break;
+                        }
+		      case 41: // TRIG
 			{
 			  Element2d el (TRIG);
 			  el.SetIndex (1);
 			  for (int j = 0; j < nnodes; j++)
 			    el[j] = nodes[j];
-			  mesh.AddSurfaceElement (el);
-			  
+			  auto nr = mesh.AddSurfaceElement (el);
+                          element_map[label] = std::make_tuple(nr+1, 1);
 			  break;
 			}
-		      case 111:
+                      case 42: // TRIG6
+                        {
+                          Element2d el(TRIG6);
+                          el.SetIndex(1);
+                          int jj = 0;
+                          for(auto j : {0,2,4,3,5,1})
+                              el[jj++] = nodes[j];
+                          auto nr = mesh.AddSurfaceElement(el);
+                          element_map[label] = std::make_tuple(nr+1, 1);
+                          break;
+                        }
+		      case 111: // TET
 			{
 			  Element el (TET);
 			  el.SetIndex (1);
 			  for (int j = 0; j < nnodes; j++)
 			    el[j] = nodes[j];
-			  mesh.AddVolumeElement (el);
-			  
+			  auto nr = mesh.AddVolumeElement (el);
+			  element_map[label] = std::make_tuple(nr+1, 0);
 			  break;
 			}
+                      case 118: // TET10
+                        {
+                          Element el(TET10);
+                          el.SetIndex(1);
+                          int jj = 0;
+                          for(auto j : {0,2,4,9,1,5,6,3,7,8})
+                            el[jj++] = nodes[j];
+                          auto nr = mesh.AddVolumeElement(el);
+                          element_map[label] = std::make_tuple(nr+1, 0);
+                          break;
+                        }
+                      default:
+                        cout << "Do not know fe_id = " << fe_id << ", skipping it." << endl;
+                        break;
 		      }
+                  }
+                cout << mesh.GetNE() << " elements found" << endl;
+                cout << mesh.GetNSE() << " surface elements found" << endl;
+
+              }
+            else if(strcmp (reco, "2467") == 0)
+              {
+                int matnr = 1;
+                cout << "Groups found" << endl;
+                while(in.good())
+                  {
+                    int len;
+                    string name;
+                    in >> len;
+                    if(len == -1)
+                      break;
+                    for(int i=0; i < 7; i++)
+                      in >> len;
+                    in >> name;
+                    cout << len << " element are in group " << name << endl;
+                    int hi, index;
+                    int fdnr, ednr;
+
+                    in >> hi >> index >> hi >> hi;
+                    int codim = get<1>(element_map[index]);
+                    // use first element to determine if boundary or volume
+                    
+                    switch (codim)
+                      {
+                      case 0:
+                        {
+                          mesh.SetMaterial(++matnr, name);
+                          mesh.VolumeElement(get<0>(element_map[index])).SetIndex(matnr);
+                          break;
+                        }
+                      case 1:
+                        {
+                          if(dim == 3)
+                          {
+                            int bcpr = mesh.GetNFD();
+                            fdnr = mesh.AddFaceDescriptor(FaceDescriptor(bcpr, 0,0,0));
+                            mesh.GetFaceDescriptor(fdnr).SetBCProperty(bcpr+1);
+                            mesh.SetBCName(bcpr, name);
+                            mesh.SurfaceElement(get<0>(element_map[index])).SetIndex(fdnr);
+                            bccounter++;
+                          }
+                          else if(dim == 2)
+                          {
+                            mesh.SetMaterial(matnr, name);
+                            fdnr = mesh.AddFaceDescriptor(FaceDescriptor(matnr, 0,0,0));
+                            mesh.SurfaceElement(get<0>(element_map[index])).SetIndex(matnr);
+                            mesh.GetFaceDescriptor(fdnr).SetBCProperty(matnr);
+			    matnr++;
+                          }
+                          break;
+
+                        }
+                      case 2:
+                        {
+                         if(dim == 3)
+                          {
+                            int bcpr = mesh.GetNCD2Names()+1;
+                            auto ed = EdgeDescriptor();
+                            ed.SetSurfNr(0,bcpr);//?
+                            ednr = mesh.AddEdgeDescriptor(ed);
+                            mesh.SetCD2Name(bcpr, name);
+                            auto nr = mesh.AddSegment(tmp_segments[get<0>(element_map[index])-1]);
+                            mesh[nr].SetBCName(mesh.GetCD2NamePtr(mesh.GetNCD2Names()));
+                            mesh[nr].edgenr = ednr+1;
+                          }
+                          else if(dim == 2)
+                          {
+                            Segment & seg = mesh.LineSegment(get<0>(element_map[index]));
+			    seg.si = bccounter + 1;
+			    mesh.SetBCName(bccounter, name);
+                            seg.SetBCName(mesh.GetBCNamePtr(bccounter));
+		            bccounter++;
+                          }
+                          break;
+
+                        }
+                      default:
+                        {
+                          cout << "Codim " << codim << " not implemented yet!" << endl;
+                        }
+                      }
+                        
+                    for(int i=0; i<len-1; i++)
+                      {
+                        in >> hi >> index >> hi >> hi;
+                        switch (codim)
+                          {
+                          case 0:
+                            mesh.VolumeElement(get<0>(element_map[index])).SetIndex(matnr);
+                            break;
+                          case 1:
+			    if(dim == 3) mesh.SurfaceElement(get<0>(element_map[index])).SetIndex(fdnr);
+			    else if (dim == 2){
+                                    mesh.SurfaceElement(get<0>(element_map[index])).SetIndex(matnr-1);
+				    mesh.GetFaceDescriptor(fdnr).SetBCProperty(matnr);
+			    }
+                            break;
+                          case 2:
+	   		    if(dim == 3)
+                            {
+                              auto nr = mesh.AddSegment(tmp_segments[get<0>(element_map[index])-1]);
+                              mesh[nr].edgenr = ednr+1;
+                              mesh[nr].SetBCName(mesh.GetCD2NamePtr(mesh.GetNCD2Names()));
+                            }
+			    else if(dim == 2)
+			    {
+	 			    Segment & seg = mesh.LineSegment(get<0>(element_map[index]));
+			            seg.si = bccounter;
+                            	    seg.SetBCName(mesh.GetBCNamePtr(bccounter-1));
+			    }
+                            break;
+                          default:
+                            break;
+                          }
+                      }
+                  }
+              }
+            else
+              {
+                cout << "Do not know data field type " << reco << ", skipping it" << endl;
+                while(in.good())
+                  {
+                    in >> reco;
+                    if(strcmp(reco, "-1") == 0)
+                      break;
                   }
               }
           }
+
+	if(dim == 2){
+		// loop through segments to assign default BC to unmarked edges
+		int bccounter_tmp = bccounter;
+		for(int index=1; index <= mesh.GetNSeg(); index++){
+                	Segment & seg = mesh.LineSegment(index);
+			if(seg.si == -1){
+			  seg.si = bccounter + 1;
+			  if(bccounter_tmp == bccounter) mesh.SetBCName(bccounter, "default"); // could be more efficient
+			  seg.SetBCName(mesh.GetBCNamePtr(bccounter));
+			  bccounter_tmp++;
+			}
+		}
+		if(bccounter_tmp > bccounter) bccounter++;
+	}
       
 
         Point3d pmin, pmax;
+        mesh.ComputeNVertices();
+        mesh.RebuildSurfaceElementLists();
         mesh.GetBox (pmin, pmax);
+        mesh.UpdateTopology();
+        if(dim == 3) bccounter++;
         cout << "bounding-box = " << pmin << "-" << pmax << endl;
+	cout << "Created " << bccounter << " boundaries." << endl;
+	for(int i=0; i<bccounter; i++){
+		cout << mesh.GetBCName(i) << endl;
+	}
       }
 
 
@@ -317,7 +544,7 @@ namespace netgen
         int bcprop;
         ifstream inpkt (pktfile.c_str());
         inpkt >> np;
-        Array<double> values(np);
+        NgArray<double> values(np);
         for (i = 1; i <= np; i++)
           {
             Point3d p(0,0,0);
@@ -422,6 +649,32 @@ namespace netgen
         ReadFNFFormat (mesh, filename);
       }
 
+    if ( ( (strlen (filename) > 4) && strcmp (&filename[strlen (filename)-4], ".stl") == 0 ) ||
+         ( (strlen (filename) > 5) && strcmp (&filename[strlen (filename)-5], ".stlb") == 0 ) )
+      {
+        ifstream ist{string{filename}};
+        auto geom = shared_ptr<STLGeometry>(STLGeometry::Load(ist));
+
+        mesh.SetDimension (3);
+
+        auto & points = geom->GetPoints();
+
+        for (auto & p : points)
+          mesh.AddPoint(MeshPoint(p));
+
+        mesh.AddFaceDescriptor (FaceDescriptor (1, 1, 0, 1));
+
+        for (auto ti : IntRange(geom->GetNT()))
+        {
+          Element2d el(TRIG);
+          for (auto i : IntRange(3))
+            el[i] = int((*geom)[STLTrigId(ti+IndexBASE<netgen::STLTrigId>())][i]);
+
+          el.SetIndex(1);
+
+          mesh.AddSurfaceElement(el);
+        }
+      }
   }
   
 }

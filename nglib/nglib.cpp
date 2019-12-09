@@ -22,14 +22,23 @@
 
 #ifdef OCCGEOMETRY
 #include <occgeom.hpp>
-#endif
+namespace netgen
+{
+   DLL_HEADER extern OCCParameters occparam;
+} // namespace netgen
+#endif // OCCGEOMETRY
 
 
 namespace netgen {
    extern void MeshFromSpline2D (SplineGeometry2d & geometry,
                                  shared_ptr<Mesh> & mesh, 
                                  MeshingParameters & mp);
+<<<<<<< HEAD
    extern void Optimize2d(Mesh & mesh, MeshingParameters & mp);
+=======
+   extern MeshingParameters mparam;
+   DLL_HEADER extern STLParameters stlparam;
+>>>>>>> master
 }
 
 
@@ -765,7 +774,7 @@ namespace nglib
       Ng_Mesh * mesh,
       int levels)
    {
-      Refinement2d ref(*(SplineGeometry2d*)geom);
+      Refinement ref(*(SplineGeometry2d*)geom);
       HPRefinement (*(Mesh*)mesh, &ref, levels);
    }
 
@@ -776,15 +785,15 @@ namespace nglib
       Ng_Mesh * mesh,
       int levels, double parameter)
    {
-      Refinement2d ref(*(SplineGeometry2d*)geom);
+      Refinement ref(*(SplineGeometry2d*)geom);
       HPRefinement (*(Mesh*)mesh, &ref, levels, parameter);
    }
 
 
 
 
-   Array<STLReadTriangle> readtrias; //only before initstlgeometry
-   Array<Point<3> > readedges; //only before init stlgeometry
+   NgArray<STLReadTriangle> readtrias; //only before initstlgeometry
+   NgArray<Point<3> > readedges; //only before init stlgeometry
 
    // loads geometry from STL file
    DLL_HEADER Ng_STL_Geometry * Ng_STL_LoadGeometry (const char * filename, int binary)
@@ -888,6 +897,7 @@ namespace nglib
    {
       STLGeometry* stlgeometry = (STLGeometry*)geom;
       Mesh* me = (Mesh*)mesh;
+      me->SetGeometry( shared_ptr<NetgenGeometry>(stlgeometry, &NOOP_Deleter) );
 
       // Philippose - 27/07/2009
       // Do not locally re-define "mparam" here... "mparam" is a global 
@@ -914,7 +924,7 @@ namespace nglib
         }
       */
 
-      STLMeshing (*stlgeometry, *me);
+      STLMeshing (*stlgeometry, *me, mparam, stlparam);
 
       stlgeometry->edgesfound = 1;
       stlgeometry->surfacemeshed = 0;
@@ -935,6 +945,7 @@ namespace nglib
    {
       STLGeometry* stlgeometry = (STLGeometry*)geom;
       Mesh* me = (Mesh*)mesh;
+      me->SetGeometry( shared_ptr<NetgenGeometry>(stlgeometry, &NOOP_Deleter) );
 
       // Philippose - 27/07/2009
       // Do not locally re-define "mparam" here... "mparam" is a global 
@@ -958,7 +969,7 @@ namespace nglib
       stlgeometry->surfaceoptimized = 0;
       stlgeometry->volumemeshed = 0;
       */  
-      int retval = STLSurfaceMeshing (*stlgeometry, *me);
+      int retval = STLSurfaceMeshing (*stlgeometry, *me, mparam, stlparam);
       if (retval == MESHING3_OK)
       {
          (*mycout) << "Success !!!!" << endl;
@@ -1094,19 +1105,20 @@ namespace nglib
    {
       OCCGeometry * occgeom = (OCCGeometry*)geom;
       Mesh * me = (Mesh*)mesh;
+      me->SetGeometry( shared_ptr<NetgenGeometry>(occgeom, &NOOP_Deleter) );
 
       me->geomtype = Mesh::GEOM_OCC;
 
       mp->Transfer_Parameters();
       
-      occparam.resthcloseedgeenable = mp->closeedgeenable;
-      occparam.resthcloseedgefac = mp->closeedgefact;
+      if(mp->closeedgeenable)
+        mparam.closeedgefac = mp->closeedgefact;
 
       // Delete the mesh structures in order to start with a clean 
       // slate
       me->DeleteMesh();
 
-      OCCSetLocalMeshSize(*occgeom, *me);
+      OCCSetLocalMeshSize(*occgeom, *me, mparam, occparam);
 
       return(NG_OK);
    }
@@ -1121,10 +1133,11 @@ namespace nglib
    {
       OCCGeometry * occgeom = (OCCGeometry*)geom;
       Mesh * me = (Mesh*)mesh;
+      me->SetGeometry( shared_ptr<NetgenGeometry>(occgeom, &NOOP_Deleter) );
 
       mp->Transfer_Parameters();
 
-      OCCFindEdges(*occgeom, *me);
+      OCCFindEdges(*occgeom, *me, mparam);
 
       if((me->GetNP()) && (me->GetNFD()))
       {
@@ -1148,6 +1161,7 @@ namespace nglib
 
       OCCGeometry * occgeom = (OCCGeometry*)geom;
       Mesh * me = (Mesh*)mesh;
+      me->SetGeometry( shared_ptr<NetgenGeometry>(occgeom, &NOOP_Deleter) );
 
       // Set the internal meshing parameters structure from the nglib meshing 
       // parameters structure
@@ -1169,7 +1183,8 @@ namespace nglib
          perfstepsend = MESHCONST_OPTSURFACE;
       }
 
-      OCCMeshSurface(*occgeom, *me, perfstepsend);
+      OCCMeshSurface(*occgeom, *me, mparam);
+      OCCOptimizeSurface(*occgeom, *me, mparam);
 
       me->CalcSurfacesOfNode();
       
@@ -1372,7 +1387,7 @@ namespace nglib
    // ------------------ Begin - Second Order Mesh generation functions ----------------
    DLL_HEADER void Ng_Generate_SecondOrder(Ng_Mesh * mesh)
    {
-      Refinement ref;
+     Refinement ref(*((Mesh*) mesh)->GetGeometry());
       ref.MakeSecondOrder(*(Mesh*) mesh);
    }
 

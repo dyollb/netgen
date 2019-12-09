@@ -11,23 +11,19 @@
 /* Date:   20. Nov. 99                                                    */
 /**************************************************************************/
 
+#include <core/ngcore.hpp>
+
 /*
   Application program interface to Netgen
 
 */
 
-#ifdef WIN32
-   #if NGINTERFACE_EXPORTS || NGLIB_EXPORTS || nglib_EXPORTS
-      #define DLL_HEADER   __declspec(dllexport)
-   #else
-      #define DLL_HEADER   __declspec(dllimport)
-   #endif
-#else
-   #if __GNUC__ >= 4
-      #define DLL_HEADER __attribute__ ((visibility ("default")))
-   #else
-      #define DLL_HEADER
-   #endif
+#ifndef DLL_HEADER
+  #if NGINTERFACE_EXPORTS || NGLIB_EXPORTS || nglib_EXPORTS
+    #define DLL_HEADER NGCORE_API_EXPORT
+  #else
+    #define DLL_HEADER NGCORE_API_IMPORT
+  #endif
 #endif
 
 
@@ -481,7 +477,6 @@ extern "C" {
 #include <iostream>
 namespace netgen 
 {
-  DLL_HEADER extern std::ostream * testout;
   DLL_HEADER extern int printmessage_importance;
 }
 

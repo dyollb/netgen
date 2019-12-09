@@ -18,8 +18,8 @@ namespace netgen
   extern MeshingParameters mparam;
 
 
-  void RegisterUserFormats (Array<const char*> & names,
-			    Array<const char*> & extensions)
+  void RegisterUserFormats (NgArray<const char*> & names,
+			    NgArray<const char*> & extensions)
 			    
 {
   const char *types[] =
@@ -396,7 +396,7 @@ void WriteSTLExtFormat (const Mesh & mesh,
 
   int numBCs = 0;
 
-  Array<int> faceBCs;
+  NgArray<int> faceBCs;
   TABLE<int> faceBCMapping;
 
   faceBCs.SetSize(mesh.GetNFD());
@@ -431,15 +431,15 @@ void WriteSTLExtFormat (const Mesh & mesh,
 
       for(int faceNr = 1;faceNr <= faceBCMapping.EntrySize(bcInd); faceNr++)
       {
-          Array<SurfaceElementIndex> faceSei;
+        Array<SurfaceElementIndex> faceSei;
           mesh.GetSurfaceElementsOfFace(faceBCMapping.Get(bcInd,faceNr),faceSei);
 
           for (int i = 0; i < faceSei.Size(); i++)
           {
         	  *outfile << "facet normal ";
-        	  const Point3d& p1 = mesh.Point(mesh.SurfaceElement(faceSei[i]).PNum(1));
-        	  const Point3d& p2 = mesh.Point(mesh.SurfaceElement(faceSei[i]).PNum(2));
-        	  const Point3d& p3 = mesh.Point(mesh.SurfaceElement(faceSei[i]).PNum(3));
+        	  const Point3d& p1 = mesh.Point(mesh[faceSei[i]].PNum(1));
+        	  const Point3d& p2 = mesh.Point(mesh[faceSei[i]].PNum(2));
+        	  const Point3d& p3 = mesh.Point(mesh[faceSei[i]].PNum(3));
 
         	  Vec3d normal = Cross(p2-p1,p3-p1);
         	  if (normal.Length() != 0)
@@ -782,7 +782,7 @@ void WriteEdgeElementFormat (const Mesh & mesh,
 
   int inverttets = mparam.inverttets;
   int invertsurf = mparam.inverttrigs;
-  Array<int> edges;
+  NgArray<int> edges;
 
   ofstream outfile (filename.c_str());
 
@@ -939,10 +939,10 @@ void WriteFile (int typ,
       INDEX_2_HASHTABLE<int> edgeht(mesh.GetNP());
 
       // list of edges
-      Array<INDEX_2> edgelist;
+      NgArray<INDEX_2> edgelist;
 
       // edge (point) on boundary ?
-      BitArray bedge, bpoint(mesh.GetNP());
+      NgBitArray bedge, bpoint(mesh.GetNP());
 
       static int eledges[6][2] = { { 1, 2 } , { 1, 3 } , { 1, 4 },
 				   { 2, 3 } , { 2, 4 } , { 3, 4 } };

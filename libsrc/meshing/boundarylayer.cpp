@@ -19,8 +19,8 @@ namespace netgen
       cout << "Old NP: " << mesh.GetNP() << endl;
       cout << "Trigs: " << mesh.GetNSE() << endl;
 
-      BitArray bndnodes(np);
-      Array<int> mapto(np);
+      NgBitArray bndnodes(np);
+      NgArray<int> mapto(np);
 
       bndnodes.Clear();
       for (i = 1; i <= mesh.GetNSeg(); i++)
@@ -151,11 +151,11 @@ namespace netgen
       double angleThreshold = 5.0;
 
 
-      Array<int> surfid (blp.surfid);
+      NgArray<int> surfid (blp.surfid);
       int prismlayers = blp.prismlayers;
       double hfirst = blp.hfirst;
       double growthfactor = blp.growthfactor;
-      Array<double> heights (blp.heights);
+      NgArray<double> heights (blp.heights);
 
       bool grow_edges = false; // grow layer at edges
       
@@ -210,14 +210,14 @@ namespace netgen
          int nseg = mesh.GetNSeg();
 
          // Indicate which points need to be remapped
-         BitArray bndnodes(np+1);  // big enough for 1-based array
+         NgBitArray bndnodes(np+1);  // big enough for 1-based array
 
          // Map of the old points to the new points
-         Array<PointIndex, PointIndex::BASE> mapto(np);
+         NgArray<PointIndex, PointIndex::BASE> mapto(np);
 
          // Growth vectors for the prismatic layer based on 
          // the effective surface normal at a given point
-         Array<Vec3d, PointIndex::BASE> growthvectors(np);
+         NgArray<Vec3d, PointIndex::BASE> growthvectors(np);
 
          // Bit array to identify all the points belonging 
          // to the surface of interest
@@ -286,7 +286,7 @@ namespace netgen
          // don't have boundary layers
 
          // Bit array to keep track of segments already processed
-         BitArray segsel(nseg);
+         NgBitArray segsel(nseg);
 
          // Set them all to "1" to initially activate all segments
          segsel.Set();
@@ -324,8 +324,8 @@ namespace netgen
                          if(!surfid.Contains(mesh[sej].si))
                            {
                              SurfaceElementIndex pnt_commelem = 0;
-                             Array<SurfaceElementIndex> pnt1_elems;
-                             Array<SurfaceElementIndex> pnt2_elems;
+                             NgArray<SurfaceElementIndex> pnt1_elems;
+                             NgArray<SurfaceElementIndex> pnt2_elems;
                              
                             
                              meshtopo.GetVertexSurfaceElements(segpair_p1,pnt1_elems);
@@ -572,10 +572,11 @@ namespace netgen
          
          // Lock all the prism points so that the rest of the mesh can be 
          // optimised without invalidating the entire mesh
-         for (PointIndex pi = mesh.Points().Begin(); pi < mesh.Points().End(); pi++)
-         {
-           if(bndnodes.Test(pi)) mesh.AddLockedPoint(pi);
-         }
+         // for (PointIndex pi = mesh.Points().Begin(); pi < mesh.Points().End(); pi++)
+         for (PointIndex pi : mesh.Points().Range())
+           {
+             if(bndnodes.Test(pi)) mesh.AddLockedPoint(pi);
+           }
 
          // Now, actually pull back the old surface points to create 
          // the actual boundary layers
@@ -583,7 +584,7 @@ namespace netgen
          
          for (int i = 1; i <= np; i++)
            {
-            Array<ElementIndex> vertelems;
+            NgArray<ElementIndex> vertelems;
 
             if(bndnodes.Test(i))
               {

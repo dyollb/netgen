@@ -6,7 +6,7 @@ if(WIN32)
   # we are linking to object libraries on Windows
   cmake_minimum_required(VERSION 3.12)
 else(WIN32)
-  cmake_minimum_required(VERSION 3.1.3)
+  cmake_minimum_required(VERSION 3.8)
 endif(WIN32)
 
 if(NOT WIN32)
@@ -28,10 +28,14 @@ option( ENABLE_CPP_CORE_GUIDELINES_CHECK "Enable cpp core guideline checks on ng
 option( USE_SPDLOG "Enable spd log logging" OFF)
 option( DEBUG_LOG "Enable more debug output (may increase computation time) - only works with USE_SPDLOG=ON" OFF)
 option( CHECK_RANGE "Check array range access, automatically enabled if built in debug mode" OFF)
+option( BUILD_STUB_FILES "Build stub files for better autocompletion" ON)
+option( BUILD_FOR_CONDA "Link python libraries only to executables" OFF)
 
 option( USE_SUPERBUILD       "use ccache" ON)
 
 set(CMAKE_MODULE_PATH "${CMAKE_MODULE_PATH}" "${CMAKE_CURRENT_SOURCE_DIR}/cmake/cmake_modules")
+
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 if(APPLE)
   set(INSTALL_DIR_DEFAULT /Applications/Netgen.app)
@@ -114,6 +118,7 @@ endif (ADDITIONAL_PATHS)
 #######################################################################
 # build options
 include_directories ("${PROJECT_SOURCE_DIR}/include")
+include_directories ("${PROJECT_SOURCE_DIR}/libsrc")
 include_directories ("${PROJECT_SOURCE_DIR}/libsrc/include")
 include_directories ("${PROJECT_BINARY_DIR}")
 
@@ -215,7 +220,7 @@ macro(get_dll_from_lib dll_path lib_path)
         get_filename_component(lib_name ${lib} name)
 endmacro()
 
-set(CMAKE_CXX_STANDARD 14)
+set(CMAKE_CXX_STANDARD 17)
 if(WIN32)
     get_WIN32_WINNT(ver)
     add_definitions(-D_WIN32_WINNT=${ver} -DWNT -DWNT_WINDOW -DNOMINMAX)
@@ -223,7 +228,7 @@ if(WIN32)
     add_definitions(-DMSVC_EXPRESS -D_CRT_SECURE_NO_WARNINGS -DHAVE_STRUCT_TIMESPEC)
     # build convenience (aka object) libraries in windows)
     set(NG_LIB_TYPE OBJECT)
-    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /MP /wd4244 /wd4800")
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /MP")
 else(WIN32)
     # build shared libraries
     set(NG_LIB_TYPE SHARED)
@@ -266,9 +271,14 @@ if (USE_GUI)
 endif (USE_GUI)
 
 #######################################################################
+if(WIN32)
+    add_library(netgen_python INTERFACE IMPORTED)
+else()
+    add_library(netgen_python INTERFACE)
+endif()
+
 if (USE_PYTHON)
     add_subdirectory(external_dependencies/pybind11)
-    add_definitions(-DNG_PYTHON)
     find_path(PYBIND_INCLUDE_DIR pybind11/pybind11.h HINTS ${PYTHON_INCLUDE_DIR})
     if( PYBIND_INCLUDE_DIR )
         message(STATUS "Found Pybind11: ${PYBIND_INCLUDE_DIR}")
@@ -276,8 +286,11 @@ if (USE_PYTHON)
         message(FATAL_ERROR "Could NOT find pybind11!")
     endif( PYBIND_INCLUDE_DIR )
 
-    include_directories(${PYBIND_INCLUDE_DIR})
-    include_directories(${PYTHON_INCLUDE_DIRS})
+    target_include_directories(netgen_python INTERFACE ${PYBIND_INCLUDE_DIR} ${PYTHON_INCLUDE_DIRS})
+    if(NOT ${BUILD_FOR_CONDA})
+        # Don't link python libraries in conda environments
+        target_link_libraries(netgen_python INTERFACE ${PYTHON_LIBRARIES})
+    endif()
 
     if(NG_INSTALL_PYBIND)
       install(DIRECTORY ${PYBIND_INCLUDE_DIR}/pybind11 DESTINATION ${NG_INSTALL_DIR_INCLUDE} COMPONENT netgen_devel)
@@ -286,13 +299,20 @@ if (USE_PYTHON)
 endif (USE_PYTHON)
 
 #######################################################################
+add_library(netgen_mpi INTERFACE)
+add_library(netgen_metis INTERFACE)
 if (USE_MPI)
     find_package(MPI REQUIRED)
+    target_include_directories(netgen_mpi INTERFACE ${MPI_CXX_INCLUDE_PATH})
+    target_link_libraries(netgen_mpi INTERFACE ${MPI_mpi_LIBRARY} ${MPI_CXX_LIBRARIES} )
+    target_compile_definitions(netgen_mpi INTERFACE PARALLEL )
+
     find_package(METIS REQUIRED)
-    add_definitions(-DPARALLEL -DMETIS)
-    include_directories(${MPI_CXX_INCLUDE_PATH})
-    include_directories(${METIS_INCLUDE_DIR})
+    target_include_directories(netgen_metis INTERFACE ${METIS_INCLUDE_DIR})
+    target_link_libraries(netgen_metis INTERFACE ${METIS_LIBRARY} )
+    target_compile_definitions(netgen_metis INTERFACE METIS )
 endif (USE_MPI)
+install(TARGETS netgen_mpi netgen_metis ${NG_INSTALL_DIR})
 
 #######################################################################
 if (USE_OCC)
@@ -382,13 +402,13 @@ endif(ENABLE_CPP_CORE_GUIDELINES_CHECK)
 add_subdirectory(libsrc)
 add_subdirectory(ng)
 add_subdirectory(tutorials)
-if (USE_PYTHON)
-  add_subdirectory(python)
-endif (USE_PYTHON)
 add_subdirectory(py_tutorials)
 add_subdirectory(doc)
 add_subdirectory(windows)
 add_subdirectory(nglib)
+if (USE_PYTHON)
+  add_subdirectory(python)
+endif (USE_PYTHON)
 add_subdirectory(tests)
 
 
@@ -450,7 +470,7 @@ $Netgen_MACOS/netgen
 #!/bin/sh
 Netgen_BUNDLE=\"`echo \"$0\" | sed -e 's/\\/Contents\\/MacOS\\/Netgen1//'`\"
 Netgen_MACOS=\"$Netgen_BUNDLE/Contents/MacOS\"
-open -a /Applications/Utilities/Terminal.app $Netgen_MACOS/startup.sh
+open -a /Applications/Utilities/Terminal.app $Netgen_MACOS/startup.sh || open -a /System/Applications/Utilities/Terminal.app $Netgen_MACOS/startup.sh
 ")
     install(PROGRAMS ${mac_ngsuite} DESTINATION ${NG_INSTALL_DIR_BIN} RENAME Netgen1)
 

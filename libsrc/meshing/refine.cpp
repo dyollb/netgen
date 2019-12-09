@@ -37,7 +37,7 @@ namespace netgen
 
     // new version with consistent ordering across sub-domains
 
-    Array<INDEX_2> parents;
+    NgArray<INDEX_2> parents;
     for (SegmentIndex si = 0; si < mesh.GetNSeg(); si++)
       {
 	const Segment & el = mesh[si];
@@ -109,7 +109,7 @@ namespace netgen
 
     PrintMessage (5, "have points");
     
-    Array<int> par_nr(parents.Size());
+    NgArray<int> par_nr(parents.Size());
     for (int i = 0; i < par_nr.Size(); i++)
       par_nr[i] = i;
     QuickSort (parents, par_nr);
@@ -121,13 +121,13 @@ namespace netgen
       }
     
     mesh.SetNP(mesh.GetNV() + parents.Size());
-    Array<bool, PointIndex::BASE> pointset(mesh.GetNP());
+    NgArray<bool, PointIndex::BASE> pointset(mesh.GetNP());
     pointset = false;
     
     PrintMessage (5, "sorting complete");
     
     // refine edges
-    Array<EdgePointGeomInfo,PointIndex::BASE> epgi;
+    NgArray<EdgePointGeomInfo,PointIndex::BASE> epgi;
 
     int oldns = mesh.GetNSeg();
     for (SegmentIndex si = 0; si < oldns; si++)
@@ -147,11 +147,11 @@ namespace netgen
 	  {
             pointset[pinew] = true;
 	    Point<3> pnew;
-	    PointBetween (mesh.Point (el[0]),
-			  mesh.Point (el[1]), 0.5,
-			  el.surfnr1, el.surfnr2,
-			  el.epgeominfo[0], el.epgeominfo[1],
-			  pnew, ngi);
+	    geo.PointBetweenEdge(mesh.Point (el[0]),
+                                 mesh.Point (el[1]), 0.5,
+                                 el.surfnr1, el.surfnr2,
+                                 el.epgeominfo[0], el.epgeominfo[1],
+                                 pnew, ngi);
 
 	    // pinew = mesh.AddPoint (pnew);
             mesh.Point(pinew) = pnew;
@@ -176,7 +176,7 @@ namespace netgen
     PrintMessage (5, "have 1d elements");
     
     // refine surface elements
-    Array<PointGeomInfo,PointIndex::BASE> surfgi (8*mesh.GetNP());
+    NgArray<PointGeomInfo,PointIndex::BASE> surfgi (8*mesh.GetNP());
     for (int i = PointIndex::BASE;
 	 i < surfgi.Size()+PointIndex::BASE; i++)
       surfgi[i].trignum = -1;
@@ -185,15 +185,15 @@ namespace netgen
     int oldnf = mesh.GetNSE();
     for (SurfaceElementIndex sei = 0; sei < oldnf; sei++)
       {
-	const Element2d & el = mesh.SurfaceElement(sei);
+	const Element2d & el = mesh[sei];
 
 	switch (el.GetType())
 	  {
 	  case TRIG:
 	  case TRIG6:
 	    {
-	      ArrayMem<PointIndex,6> pnums(6);
-	      ArrayMem<PointGeomInfo,6> pgis(6);
+	      NgArrayMem<PointIndex,6> pnums(6);
+	      NgArrayMem<PointGeomInfo,6> pgis(6);
 
 	      static int betw[3][3] =
 		{ { 2, 3, 4 },
@@ -216,12 +216,12 @@ namespace netgen
 
 		  Point<3> pb;
 		  PointGeomInfo pgi;
-		  PointBetween (mesh.Point (pi1),
-				mesh.Point (pi2), 0.5,
-				mesh.GetFaceDescriptor(el.GetIndex ()).SurfNr(),
-				el.GeomInfoPi (betw[j][0]),
-				el.GeomInfoPi (betw[j][1]),
-				pb, pgi);
+		  geo.PointBetween(mesh.Point (pi1),
+                                   mesh.Point (pi2), 0.5,
+                                   mesh.GetFaceDescriptor(el.GetIndex ()).SurfNr(),
+                                   el.GeomInfoPi (betw[j][0]),
+                                   el.GeomInfoPi (betw[j][1]),
+                                   pb, pgi);
 
 
 		  pgis.Elem(4+j) = pgi;
@@ -265,7 +265,7 @@ namespace netgen
 		  nel.SetIndex(ind);
 
 		  if (j == 0)
-		    mesh.SurfaceElement(sei) = nel;
+		    mesh[sei] = nel;
 		  else
 		    mesh.AddSurfaceElement(nel);
 		}
@@ -275,8 +275,8 @@ namespace netgen
 	  case QUAD6:
 	  case QUAD8:
 	    {
-	      ArrayMem<PointIndex,9> pnums(9);
-	      ArrayMem<PointGeomInfo,9> pgis(9);
+	      NgArrayMem<PointIndex,9> pnums(9);
+	      NgArrayMem<PointGeomInfo,9> pgis(9);
 
 	      static int betw[5][3] =
 		{ { 1, 2, 5 },
@@ -307,12 +307,12 @@ namespace netgen
 		  else
 		    {
 		      Point<3> pb;
-		      PointBetween (mesh.Point (pi1),
-				    mesh.Point (pi2), 0.5,
-				    mesh.GetFaceDescriptor(el.GetIndex ()).SurfNr(),
-				    el.GeomInfoPi (betw[j][0]),
-				    el.GeomInfoPi (betw[j][1]),
-				    pb, pgis.Elem(5+j));
+		      geo.PointBetween(mesh.Point (pi1),
+                                       mesh.Point (pi2), 0.5,
+                                       mesh.GetFaceDescriptor(el.GetIndex ()).SurfNr(),
+                                       el.GeomInfoPi (betw[j][0]),
+                                       el.GeomInfoPi (betw[j][1]),
+                                       pb, pgis.Elem(5+j));
 
 		      pnums.Elem(5+j) = mesh.AddPoint (pb);
 
@@ -343,7 +343,7 @@ namespace netgen
 		  nel.SetIndex(ind);
 
 		  if (j == 0)
-		    mesh.SurfaceElement(sei) = nel;
+		    mesh[sei] = nel;
 		  else
 		    mesh.AddSurfaceElement(nel);
 		}
@@ -361,13 +361,13 @@ namespace netgen
     mesh.VolumeElements().SetAllocSize(8*oldne);
     for (ElementIndex ei = 0; ei < oldne; ei++)
       {
-	const Element & el = mesh.VolumeElement(ei);
+	const Element & el = mesh[ei];
 	switch (el.GetType())
 	  {
 	  case TET:
 	  case TET10:
 	    {
-	     ArrayMem<PointIndex,10> pnums(10);
+	     NgArrayMem<PointIndex,10> pnums(10);
 	     static int betw[6][3] =
 	     { { 1, 2, 5 },
 	       { 1, 3, 6 },
@@ -458,7 +458,7 @@ namespace netgen
           }
           case HEX:
           {
-	     ArrayMem<PointIndex,27> pnums(27);
+	     NgArrayMem<PointIndex,27> pnums(27);
 	     static int betw[13][3] =
 	     { { 1, 2, 9 },
 	       { 3, 4, 10 },
@@ -584,7 +584,7 @@ namespace netgen
 	  }
 	  case PRISM:
           {
-	     ArrayMem<PointIndex,18> pnums(18);
+	     NgArrayMem<PointIndex,18> pnums(18);
 	     static int betw[9][3] =
 	     { { 3, 1, 7 },
 	       { 1, 2, 8 },
@@ -711,7 +711,7 @@ namespace netgen
     // update identification tables
     for (int i = 1; i <= mesh.GetIdentifications().GetMaxNr(); i++)
       {
-	Array<int,PointIndex::BASE> identmap;
+	NgArray<int,PointIndex::BASE> identmap;
 	mesh.GetIdentifications().GetMap (i, identmap);
 
 	for (int j = 1; j <= between.GetNBags(); j++)
@@ -754,8 +754,8 @@ namespace netgen
 	cout << "WARNING: " << wrongels << " with wrong orientation found" << endl;
 
 	int np = mesh.GetNP();
-	Array<Point<3> > should(np);
-	Array<Point<3> > can(np);
+	NgArray<Point<3> > should(np);
+	NgArray<Point<3> > can(np);
 	for (int i = 1; i <= np; i++)
 	  {
 	    should.Elem(i) = can.Elem(i) = mesh.Point(i);
@@ -770,7 +770,7 @@ namespace netgen
 					can.Elem(parent.I2()));
 	    }
 
-	BitArray boundp(np);
+	NgBitArray boundp(np);
 	boundp.Clear();
 	for (auto & sel : mesh.SurfaceElements())
           for (auto pi : sel.PNums())
@@ -801,7 +801,7 @@ namespace netgen
 		    mesh.Point(i) = can.Get(i);
 	      
 
-		BitArray free (mesh.GetNP()), fhelp(mesh.GetNP());
+		NgBitArray free (mesh.GetNP()), fhelp(mesh.GetNP());
 		free.Clear();
 		for (int i = 1; i <= mesh.GetNE(); i++)
 		  {

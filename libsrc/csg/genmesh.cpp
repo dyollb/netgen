@@ -10,8 +10,8 @@
 
 namespace netgen
 {
-  Array<SpecialPoint> specpoints;
-  static Array<MeshPoint> spoints;
+  NgArray<SpecialPoint> specpoints;
+  static NgArray<MeshPoint> spoints;
 
 #define TCL_OK 0
 #define TCL_ERROR 1
@@ -140,7 +140,7 @@ namespace netgen
 	  }
       }
 
-    Array<int> loc;
+    NgArray<int> loc;
     if (!ec.point_on_edge_problem)
       for (SegmentIndex si = 0; si < mesh.GetNSeg(); si++)
 	{
@@ -234,17 +234,17 @@ namespace netgen
     const char * savetask = multithread.task;
     multithread.task = "Surface meshing";
   
-    Array<Segment> segments;
+    NgArray<Segment> segments;
     int noldp = mesh.GetNP();
 
     double starttime = GetTime();
 
     // find master faces from identified
-    Array<int> masterface(mesh.GetNFD());
+    NgArray<int> masterface(mesh.GetNFD());
     for (int i = 1; i <= mesh.GetNFD(); i++)
       masterface.Elem(i) = i;
   
-    Array<INDEX_2> fpairs;
+    NgArray<INDEX_2> fpairs;
     bool changed;
     do
       {
@@ -382,7 +382,7 @@ namespace netgen
 
     for (int j = 0; j < geom.singfaces.Size(); j++)
       {
-	Array<int> surfs;
+	NgArray<int> surfs;
 	geom.GetIndependentSurfaceIndices (geom.singfaces[j]->GetSolid(),
 					   geom.BoundingBox(), surfs);
 	for (int k = 1; k <= mesh.GetNFD(); k++)
@@ -422,7 +422,7 @@ namespace netgen
 	  geom.GetSurface((mesh.GetFaceDescriptor(k).SurfNr()));
 
 
-	Meshing2Surfaces meshing(*surf, mparam, geom.BoundingBox());
+	Meshing2Surfaces meshing(geom, *surf, mparam, geom.BoundingBox());
 	meshing.SetStartTime (starttime);
 
         double eps = 1e-8 * geom.MaxSize();
@@ -504,6 +504,8 @@ namespace netgen
 	for (SurfaceElementIndex sei = oldnf; sei < mesh.GetNSE(); sei++)
 	  mesh[sei].SetIndex (k);
 
+        auto n_illegal_trigs = mesh.FindIllegalTrigs();
+        PrintMessage (3, n_illegal_trigs, " illegal triangles");
 
 	//      mesh.CalcSurfacesOfNode();
 
@@ -521,48 +523,48 @@ namespace netgen
 		if (multithread.terminate) return;
 		
 		{
-		  MeshOptimize2dSurfaces meshopt(geom);
+		  MeshOptimize2d meshopt(mesh);
 		  meshopt.SetFaceIndex (k);
 		  meshopt.SetImproveEdges (0);
 		  meshopt.SetMetricWeight (mparam.elsizeweight);
 		  meshopt.SetWriteStatus (0);
 		  
-		  meshopt.EdgeSwapping (mesh, (i > mparam.optsteps2d/2));
+		  meshopt.EdgeSwapping (i > mparam.optsteps2d/2);
 		}
 		
 		if (multithread.terminate) return;
 		{
 		  //		mesh.CalcSurfacesOfNode();
 		
-		  MeshOptimize2dSurfaces meshopt(geom);
+		  MeshOptimize2d meshopt(mesh);
 		  meshopt.SetFaceIndex (k);
 		  meshopt.SetImproveEdges (0);
 		  meshopt.SetMetricWeight (mparam.elsizeweight);
 		  meshopt.SetWriteStatus (0);
 
-		  meshopt.ImproveMesh (mesh, mparam);
+		  meshopt.ImproveMesh(mparam);
 		}
 		
 		{
-		  MeshOptimize2dSurfaces meshopt(geom);
+		  MeshOptimize2d meshopt(mesh);
 		  meshopt.SetFaceIndex (k);
 		  meshopt.SetImproveEdges (0);
 		  meshopt.SetMetricWeight (mparam.elsizeweight);
 		  meshopt.SetWriteStatus (0);
 
-		  meshopt.CombineImprove (mesh);
+		  meshopt.CombineImprove();
 		  //		mesh.CalcSurfacesOfNode();
 		}
 		
 		if (multithread.terminate) return;
 		{
-		  MeshOptimize2dSurfaces meshopt(geom);
+		  MeshOptimize2d meshopt(mesh);
 		  meshopt.SetFaceIndex (k);
 		  meshopt.SetImproveEdges (0);
 		  meshopt.SetMetricWeight (mparam.elsizeweight);
 		  meshopt.SetWriteStatus (0);
 
-		  meshopt.ImproveMesh (mesh, mparam);
+		  meshopt.ImproveMesh(mparam);
 		}
 	      }
 	  }
@@ -680,7 +682,7 @@ namespace netgen
 	mesh->SetGlobalH (mparam.maxh);
 	mesh->SetMinimalH (mparam.minh);
 
-	Array<double> maxhdom(geom.GetNTopLevelObjects());
+	NgArray<double> maxhdom(geom.GetNTopLevelObjects());
 	for (int i = 0; i < maxhdom.Size(); i++)
 	  maxhdom[i] = geom.GetTopLevelObject(i)->GetMaxH();
 

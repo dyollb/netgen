@@ -1,6 +1,8 @@
 #ifdef NG_PYTHON
 
 #include <../general/ngpython.hpp>
+#include <core/python_ngcore.hpp>
+#include "../meshing/python_mesh.hpp"
 
 #include <meshing.hpp>
 #include <geometry2d.hpp>
@@ -60,57 +62,55 @@ DLL_HEADER void ExportGeom2d(py::module &m)
 	  }),
          py::arg("x"), py::arg("y"), py::arg("maxh") = 1e99, py::arg("hpref")=0, py::arg("name")="")
     .def("Append", FunctionPointer([](SplineGeometry2d &self, py::list segment, int leftdomain, int rightdomain,
-                                      py::object bc, py::object copy, double maxh, double hpref)
+                                      optional<variant<int, string>> bc, optional<int> copy, double maxh,
+                                      double hpref, double hprefleft, double hprefright)
 	  {
-            py::extract<std::string> segtype(segment[0]);
+            auto segtype = py::cast<std::string>(segment[0]);
             
             SplineSegExt * seg;
-            if (segtype().compare("line") == 0)
+            if (segtype == "line")
               {
-                py::extract<int> point_index1(segment[1]);
-                py::extract<int> point_index2(segment[2]);
-                //point_index1.check()
-                
-                LineSeg<2> * l = new LineSeg<2>(self.GetPoint(point_index1()), self.GetPoint(point_index2()));
+                LineSeg<2> * l = new LineSeg<2>(self.GetPoint(py::cast<int>(segment[1])),
+                                                self.GetPoint(py::cast<int>(segment[2])));
                 seg = new SplineSegExt(*l);
               }
-            else if (segtype().compare("spline3") == 0)
+            else if (segtype == "spline3")
               {
-                py::extract<int> point_index1(segment[1]);
-                py::extract<int> point_index2(segment[2]);
-                py::extract<int> point_index3(segment[3]);
-                
-                SplineSeg3<2> * seg3 = new SplineSeg3<2>(self.GetPoint(point_index1()), self.GetPoint(point_index2()), self.GetPoint(point_index3()));
+                SplineSeg3<2> * seg3 = new SplineSeg3<2>(self.GetPoint(py::cast<int>(segment[1])),
+                                                         self.GetPoint(py::cast<int>(segment[2])),
+                                                         self.GetPoint(py::cast<int>(segment[3])));
                 seg = new SplineSegExt(*seg3);
               }
             else
-              {
-                cout << "Appended segment is not a line or a spline3" << endl;
-              }
+                throw Exception("Appended segment is not a line or a spline3");
             seg->leftdom = leftdomain;
             seg->rightdom = rightdomain;
             seg->hmax = maxh;
-            seg->hpref_left = hpref;
-            seg->hpref_right = hpref;
+            seg->hpref_left = max(hpref, hprefleft);
+            seg->hpref_right = max(hpref,hprefright);
             seg->reffak = 1;
             seg->copyfrom = -1;
-            if (py::extract<int>(copy).check())
-              seg->copyfrom = py::extract<int>(copy)()+1;
-              
-            if (py::extract<int>(bc).check())
-              seg->bc = py::extract<int>(bc)();
-            else if (py::extract<string>(bc).check())
+            if (copy.has_value())
+              seg->copyfrom = *copy+1;
+
+            if (bc.has_value())
               {
-                string bcname = py::extract<string>(bc)();
-                seg->bc = self.GetNSplines()+1;
-                self.SetBCName(seg->bc, bcname);
+                if(auto intptr = get_if<int>(&*bc); intptr)
+                  seg->bc = *intptr;
+                else
+                  {
+                    auto bcname = get_if<string>(&*bc);
+                    seg->bc = self.GetNSplines() + 1;
+                    self.SetBCName(seg->bc, *bcname);
+                  }
               }
             else
               seg->bc = self.GetNSplines()+1;
             self.AppendSegment(seg);
             return self.GetNSplines()-1;
 	  }), py::arg("point_indices"), py::arg("leftdomain") = 1, py::arg("rightdomain") = py::int_(0),
-               py::arg("bc")=NGDummyArgument(), py::arg("copy")=NGDummyArgument(), py::arg("maxh")=1e99, py::arg("hpref")=0)
+         py::arg("bc")=nullopt, py::arg("copy")=nullopt, py::arg("maxh")=1e99,
+         py::arg("hpref")=0,py::arg("hprefleft")=0,py::arg("hprefright")=0)
 
     
     .def("AppendSegment", FunctionPointer([](SplineGeometry2d &self, py::list point_indices, int leftdomain, int rightdomain)
@@ -130,6 +130,8 @@ DLL_HEADER void ExportGeom2d(py::module &m)
 			  seg = new SplineSegExt(*seg3);
 
 		  }
+                  else
+                    throw Exception("Can only append segments with 2 or 3 points!");
 		  seg->leftdom = leftdomain;
 		  seg->rightdom = rightdomain;
 		  seg->hmax = 1e99;
@@ -138,6 +140,47 @@ DLL_HEADER void ExportGeom2d(py::module &m)
 		  self.AppendSegment(seg);
                   }), py::arg("point_indices"), py::arg("leftdomain") = 1, py::arg("rightdomain") = py::int_(0))
 
+
+    .def("AddCurve", 
+         [] (SplineGeometry2d & self, py::object func,
+                         int leftdomain, int rightdomain, py::object bc, double maxh)
+         {
+           int n = 1000;
+           NgArray<Point<2>> points;
+           for (int i = 0; i <= n; i++)
+             {
+               double t = double(i)/n;
+               py::tuple xy = func(t);
+               double x = py::cast<double>(xy[0]);
+               double y = py::cast<double>(xy[1]);
+               points.Append (Point<2>(x,y));
+             }
+           auto spline = new DiscretePointsSeg<2> (points);
+           SplineSegExt * spex = new SplineSegExt (*spline);
+           
+           spex -> leftdom = leftdomain;
+           spex -> rightdom = rightdomain;
+           spex->hmax = maxh;
+           spex->reffak = 1;
+           spex->copyfrom = -1;
+           
+           if (py::extract<int>(bc).check())
+             spex->bc = py::extract<int>(bc)();
+           else if (py::extract<string>(bc).check())
+             {
+               string bcname = py::extract<string>(bc)();
+               spex->bc = self.GetNSplines()+1;
+               self.SetBCName(spex->bc, bcname);
+             }
+           else
+             spex->bc = self.GetNSplines()+1;
+
+           
+           self.AppendSegment (spex);
+         }, py::arg("func"), py::arg("leftdomain") = 1, py::arg("rightdomain") = py::int_(0),
+         py::arg("bc")=NGDummyArgument(), py::arg("maxh")=1e99,
+         "Curve is given as parametrization on the interval [0,1]")
+    
     .def("SetMaterial", &SplineGeometry2d::SetMaterial)
     .def("SetDomainMaxH", &SplineGeometry2d::SetDomainMaxh)
 
@@ -320,17 +363,35 @@ DLL_HEADER void ExportGeom2d(py::module &m)
 			  //cout << i << " : " << self.splines[i]->GetPoint(0.1) << " , " << self.splines[i]->GetPoint(0.5) << endl;
 		  }
 	  }))
-	  .def("GenerateMesh", [](shared_ptr<SplineGeometry2d> self, MeshingParameters & mparam)
+    .def("Draw", FunctionPointer
+         ([] (shared_ptr<SplineGeometry2d> self)
+          {
+             ng_geometry = self;
+          })
+         )
+    
+    // If we change to c++17 this can become optional<MeshingParameters>
+    .def("GenerateMesh", [](shared_ptr<SplineGeometry2d> self,
+                            MeshingParameters* pars, py::kwargs kwargs)
 		{
-		  shared_ptr<Mesh> mesh = make_shared<Mesh> ();
+                  MeshingParameters mp;
+                  if(pars) mp = *pars;
+                  {
+                    py::gil_scoped_acquire aq;
+                    CreateMPfromKwargs(mp, kwargs);
+                  }
+		  auto mesh = make_shared<Mesh>();
                   mesh->SetGeometry(self);
                   SetGlobalMesh (mesh);
                   ng_geometry = self;
-		  self->GenerateMesh(mesh, mparam);
+		  auto result = self->GenerateMesh(mesh, mp);
+                  if(result != 0)
+                    throw Exception("Meshing failed!");
 		  return mesh;
-                },py::call_guard<py::gil_scoped_release>())
-	  
-	  ;
+                }, py::arg("mp") = nullptr,
+      py::call_guard<py::gil_scoped_release>(),
+      meshingparameter_description.c_str())
+    ;
   
 }
 
