@@ -1018,6 +1018,10 @@ namespace nglib
    // Constructor for the local nglib meshing parameters class
    NGLIB_API Ng_Meshing_Parameters :: Ng_Meshing_Parameters()
    {
+      parthread = 0;
+
+      delaunay = true;
+
       uselocalh = 1;
 
       maxh = 1000;
@@ -1071,6 +1075,10 @@ namespace nglib
    // 
    NGLIB_API void Ng_Meshing_Parameters :: Transfer_Parameters()
    {
+      mparam.parthread = parthread;
+
+      mparam.delaunay = delaunay;
+
       mparam.uselocalh = uselocalh;
       
       mparam.maxh = maxh;

@@ -88,6 +88,10 @@ enum Ng_Result
 class Ng_Meshing_Parameters 
 {
 public:
+   int parthread;                      //!< use parallel threads
+
+   bool delaunay;                      //!< use delaunay for 3d meshing
+
    int uselocalh;                      //!< Switch to enable / disable usage of local mesh size modifiers
 
    double maxh;                        //!< Maximum global mesh size allowed
@@ -134,6 +138,8 @@ public:
 
       Note: This constructor initialises the variables in the 
       class with the following default values
+      - #parthread: 0
+      - #delaunay: true
       - #uselocalh: 1
       - #maxh: 1000.0
       - #fineness: 0.5
