@@ -88,6 +88,8 @@ enum Ng_Result
 class Ng_Meshing_Parameters 
 {
 public:
+   int parallel_meshing;               //!< Enable / Disable parallel meshing
+   int nthreads;                       //!< Set number of threads to use
    int parthread;                      //!< use parallel threads
 
    bool delaunay;                      //!< use delaunay for 3d meshing
@@ -138,6 +140,8 @@ public:
 
       Note: This constructor initialises the variables in the 
       class with the following default values
+      - #parallel_meshing: 1
+      - #nthreads: 4
       - #parthread: 0
       - #delaunay: true
       - #uselocalh: 1

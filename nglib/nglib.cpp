@@ -27,7 +27,7 @@ namespace netgen {
                                  MeshingParameters & mp);
    extern void Optimize2d(Mesh & mesh, MeshingParameters & mp, int faceindex=0);
    extern MeshingParameters mparam;
-   DLL_HEADER extern STLParameters stlparam;
+   extern STLParameters stlparam;
 }
 
 
@@ -1018,6 +1018,8 @@ namespace nglib
    // Constructor for the local nglib meshing parameters class
    NGLIB_API Ng_Meshing_Parameters :: Ng_Meshing_Parameters()
    {
+      parallel_meshing = 1;
+      nthreads = 4;
       parthread = 0;
 
       delaunay = true;
@@ -1075,6 +1077,8 @@ namespace nglib
    // 
    NGLIB_API void Ng_Meshing_Parameters :: Transfer_Parameters()
    {
+      mparam.parallel_meshing = parallel_meshing;
+      mparam.nthreads = nthreads;
       mparam.parthread = parthread;
 
       mparam.delaunay = delaunay;
