@@ -16,3 +16,5 @@ endif(EMSCRIPTEN)
 
 install(TARGETS nglib netgen_cgns ${NG_INSTALL_DIR})
 install(FILES nglib.h DESTINATION ${NG_INSTALL_DIR_INCLUDE} COMPONENT netgen_devel)
+
+add_subdirectory(tests)

@@ -29,6 +29,7 @@ option( USE_NUMA         "compile with NUMA-aware code" OFF)
 option( INTEL_MIC        "cross compile for intel xeon phi" OFF)
 option( INSTALL_PROFILES "install environment variable settings to /etc/profile.d" OFF )
 option( USE_CCACHE       "use ccache" OFF)
+option( USE_ASAN         "enable address sanitizer" OFF)
 option( USE_INTERNAL_TCL "Compile tcl files into the code and don't install them" ON)
 option( ENABLE_UNIT_TESTS "Enable Catch unit tests" OFF)
 option( ENABLE_CPP_CORE_GUIDELINES_CHECK "Enable cpp core guideline checks on ngcore" OFF)
@@ -254,6 +255,12 @@ if(USE_GUI)
         set_target_properties( nggui PROPERTIES OUTPUT_NAME "libnggui")
     endif(WIN32)
 endif(USE_GUI)
+
+# Include sanitizer support
+include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/sanitize.cmake)
+
+# Apply sanitizers to nglib target
+add_sanitizers_to_target(nglib)
 
 #######################################################################
 if(NOT ZLIB_INCLUDE_DIRS)
