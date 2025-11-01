@@ -65,6 +65,11 @@ jobs:
     - name: Setup Ninja
       uses: seanmiddleditch/gha-setup-ninja@master
       
+    - name: Install dependencies with vcpkg
+      run: |
+        vcpkg install zlib:x64-windows
+        echo "VCPKG_ROOT=$env:VCPKG_INSTALLATION_ROOT" >> $env:GITHUB_ENV
+      
     - name: Setup CMake
       uses: jwlawson/actions-setup-cmake@v1.14
       with:
@@ -74,6 +79,8 @@ jobs:
       run: |
         cmake -B build `
           -G Ninja `
+          -DCMAKE_TOOLCHAIN_FILE="$env:VCPKG_INSTALLATION_ROOT/scripts/buildsystems/vcpkg.cmake" `
+          -DVCPKG_TARGET_TRIPLET=x64-windows `
           -DCMAKE_BUILD_TYPE=Debug `
           -DUSE_SUPERBUILD=OFF `
           -DUSE_GUI=OFF `
