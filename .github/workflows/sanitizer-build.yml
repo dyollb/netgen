@@ -53,7 +53,7 @@ jobs:
 
   build-test-windows:
     name: Windows (MSVC with AddressSanitizer) 
-    runs-on: windows-latest
+    runs-on: windows-2019
     
     steps:
     - name: Checkout code
@@ -61,6 +61,8 @@ jobs:
       
     - name: Setup Visual Studio environment
       uses: ilammy/msvc-dev-cmd@v1
+      with:
+        vsversion: 2019
       
     - name: Setup CMake
       uses: jwlawson/actions-setup-cmake@v1.14
