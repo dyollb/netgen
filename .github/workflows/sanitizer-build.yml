@@ -53,7 +53,7 @@ jobs:
 
   build-test-windows:
     name: Windows (MSVC with AddressSanitizer) 
-    runs-on: windows-2019
+    runs-on: windows-latest
     
     steps:
     - name: Checkout code
@@ -61,8 +61,9 @@ jobs:
       
     - name: Setup Visual Studio environment
       uses: ilammy/msvc-dev-cmd@v1
-      with:
-        vsversion: 2019
+      
+    - name: Setup Ninja
+      uses: seanmiddleditch/gha-setup-ninja@master
       
     - name: Setup CMake
       uses: jwlawson/actions-setup-cmake@v1.14
@@ -72,8 +73,7 @@ jobs:
     - name: Configure CMake
       run: |
         cmake -B build `
-          -G "Visual Studio 16 2019" `
-          -A x64 `
+          -G Ninja `
           -DCMAKE_BUILD_TYPE=Debug `
           -DUSE_SUPERBUILD=OFF `
           -DUSE_GUI=OFF `
@@ -86,11 +86,12 @@ jobs:
           -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
           
     - name: Build
-      run: cmake --build build --config Debug --target ng_stl
+      run: cmake --build build --target ng_stl
       
     - name: Test ng_stl executable
       run: |
         cd build
-        # Run the test executable (Debug config on Windows)
-        .\nglib\tests\Debug\ng_stl.exe
+        # Run the test executable with leak detection disabled (focus on memory corruption)
+        $env:ASAN_OPTIONS="detect_leaks=0:abort_on_error=1"
+        .\nglib\tests\ng_stl.exe
         Write-Host "ng_stl test completed successfully"
