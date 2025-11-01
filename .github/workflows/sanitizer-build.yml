@@ -46,10 +46,26 @@ jobs:
     - name: Test ng_stl executable
       run: |
         cd build
+        echo "Running ng_stl test with AddressSanitizer..."
         # Run the test executable with leak detection disabled (focus on memory corruption)
         export ASAN_OPTIONS="detect_leaks=0:abort_on_error=1"
-        ./nglib/tests/ng_stl
-        echo "ng_stl test completed successfully"
+        echo "ASAN_OPTIONS: $ASAN_OPTIONS"
+        
+        # Check if executable exists
+        if [ -f "./nglib/tests/ng_stl" ]; then
+          echo "Found ng_stl executable, executing..."
+          ./nglib/tests/ng_stl
+          if [ $? -eq 0 ]; then
+            echo "ng_stl test completed successfully"
+          else
+            echo "ng_stl test failed with exit code: $?"
+            exit $?
+          fi
+        else
+          echo "ERROR: ng_stl executable not found!"
+          find . -name "ng_stl" -type f
+          exit 1
+        fi
 
   build-test-windows:
     name: Windows (MSVC with AddressSanitizer) 
@@ -98,7 +114,23 @@ jobs:
     - name: Test ng_stl executable
       run: |
         cd build
+        Write-Host "Running ng_stl test with AddressSanitizer..."
         # Run the test executable with leak detection disabled (focus on memory corruption)
         $env:ASAN_OPTIONS="detect_leaks=0:abort_on_error=1"
-        .\nglib\tests\ng_stl.exe
-        Write-Host "ng_stl test completed successfully"
+        Write-Host "ASAN_OPTIONS: $env:ASAN_OPTIONS"
+        
+        # Check if executable exists
+        if (Test-Path ".\nglib\tests\ng_stl.exe") {
+          Write-Host "Found ng_stl.exe, executing..."
+          .\nglib\tests\ng_stl.exe
+          if ($LASTEXITCODE -eq 0) {
+            Write-Host "ng_stl test completed successfully"
+          } else {
+            Write-Host "ng_stl test failed with exit code: $LASTEXITCODE"
+            exit $LASTEXITCODE
+          }
+        } else {
+          Write-Host "ERROR: ng_stl.exe not found!"
+          Get-ChildItem -Recurse -Name "ng_stl.exe"
+          exit 1
+        }
