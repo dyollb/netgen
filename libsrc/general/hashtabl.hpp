@@ -338,8 +338,10 @@ protected:
   ///
   int Position (int bnr, const INDEX_3 & ind) const
   {
+    const int n = hash.EntrySize(bnr);
+    if (n == 0) return 0;
+    
     const INDEX_3 * pi = &hash.Get(bnr, 1);
-    int n = hash.EntrySize(bnr);
     for (int i = 1; i <= n; ++i, ++pi)
       {
 	if (*pi == ind)
