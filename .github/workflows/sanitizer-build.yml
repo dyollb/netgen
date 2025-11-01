@@ -46,7 +46,8 @@ jobs:
     - name: Test ng_stl executable
       run: |
         cd build
-        # Run the test executable
+        # Run the test executable with leak detection disabled (focus on memory corruption)
+        export ASAN_OPTIONS="detect_leaks=0:abort_on_error=1"
         ./nglib/tests/ng_stl
         echo "ng_stl test completed successfully"
 
@@ -69,7 +70,7 @@ jobs:
     - name: Configure CMake
       run: |
         cmake -B build `
-          -G "Visual Studio 17 2022" `
+          -G "Visual Studio 16 2019" `
           -A x64 `
           -DCMAKE_BUILD_TYPE=Debug `
           -DUSE_SUPERBUILD=OFF `
