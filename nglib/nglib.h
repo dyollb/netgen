@@ -245,7 +245,7 @@ public:
     program before beginning to use the other Netgen 
     specific functions.
 */
-NGLIB_API void Ng_Init (bool cout_to_null = false, bool cerr_to_null = false, bool testout_to_null = false);
+NGLIB_API void Ng_Init (bool cout_to_null = false, bool cerr_to_null = false, bool testout_to_null = true);
 
 
 /*! \brief Exit the Netgen meshing kernel in a clean manner

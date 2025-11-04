@@ -20,6 +20,8 @@
 
 #include <../interface/writeuser.hpp>
 
+#include <mutex>
+
 
 namespace netgen {
    extern void MeshFromSpline2D (SplineGeometry2d & geometry,
@@ -69,18 +71,19 @@ namespace nglib
 
    class NullStreambuf : public std::streambuf
    {
-      char dummyBuffer[64];
    protected:
       virtual int overflow(int c)
       {
-         setp(dummyBuffer, dummyBuffer + sizeof(dummyBuffer));
          return (c == traits_type::eof()) ? '\0' : c;
       }
    };
 
+   std::mutex nglib_mutex;
+
    // initialize, deconstruct Netgen library:
    NGLIB_API void Ng_Init (bool cout_to_null, bool cerr_to_null, bool testout_to_null)
    {
+      std::lock_guard<std::mutex> lock(nglib_mutex);
       static ostream* null_stream = new ostream(new NullStreambuf);
       mycout  = cout_to_null ? null_stream : &cout;
       myerr   = cerr_to_null ? null_stream : &cerr;

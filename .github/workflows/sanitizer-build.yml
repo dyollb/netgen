@@ -67,25 +67,19 @@ jobs:
           exit 1
         fi
 
-  build-test-windows:
-    name: Windows (MSVC with AddressSanitizer) 
-    runs-on: windows-latest
+  build-test-linux-msan:
+    name: Linux (Clang with MemorySanitizer)
+    runs-on: ubuntu-latest
     
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
       
-    - name: Setup Visual Studio environment
-      uses: ilammy/msvc-dev-cmd@v1
-      
-    - name: Setup Ninja
-      uses: seanmiddleditch/gha-setup-ninja@master
-      
-    - name: Install dependencies with vcpkg
+    - name: Install dependencies
       run: |
-        vcpkg install zlib:x64-windows
-        echo "VCPKG_ROOT=$env:VCPKG_INSTALLATION_ROOT" >> $env:GITHUB_ENV
-      
+        sudo apt-get update
+        sudo apt-get install -y ninja-build clang libeigen3-dev
+        
     - name: Setup CMake
       uses: jwlawson/actions-setup-cmake@v1.14
       with:
@@ -93,44 +87,44 @@ jobs:
         
     - name: Configure CMake
       run: |
-        cmake -B build `
-          -G Ninja `
-          -DCMAKE_TOOLCHAIN_FILE="$env:VCPKG_INSTALLATION_ROOT/scripts/buildsystems/vcpkg.cmake" `
-          -DVCPKG_TARGET_TRIPLET=x64-windows `
-          -DCMAKE_BUILD_TYPE=Debug `
-          -DUSE_SUPERBUILD=OFF `
-          -DUSE_GUI=OFF `
-          -DUSE_PYTHON=OFF `
-          -DUSE_OCC=OFF `
-          -DUSE_SPDLOG=OFF `
-          -DDEBUG_LOG=OFF `
-          -DUSE_ASAN=ON `
-          -DCHECK_RANGES=ON `
+        cmake -B build \
+          -G Ninja \
+          -DCMAKE_C_COMPILER=clang \
+          -DCMAKE_CXX_COMPILER=clang++ \
+          -DCMAKE_BUILD_TYPE=Debug \
+          -DUSE_SUPERBUILD=OFF \
+          -DUSE_GUI=OFF \
+          -DUSE_PYTHON=OFF \
+          -DUSE_OCC=OFF \
+          -DUSE_SPDLOG=OFF \
+          -DDEBUG_LOG=OFF \
+          -DUSE_MSAN=ON \
+          -DCHECK_RANGES=ON \
           -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
           
     - name: Build
-      run: cmake --build build --target ng_stl
+      run: cmake --build build --target ng_stl -j $(nproc)
       
     - name: Test ng_stl executable
       run: |
         cd build
-        Write-Host "Running ng_stl test with AddressSanitizer..."
-        # Run the test executable with leak detection disabled (focus on memory corruption)
-        $env:ASAN_OPTIONS="detect_leaks=0:abort_on_error=1"
-        Write-Host "ASAN_OPTIONS: $env:ASAN_OPTIONS"
+        echo "Running ng_stl test with MemorySanitizer..."
+        # Run the test executable with MSan options
+        export MSAN_OPTIONS="halt_on_error=1:abort_on_error=1:print_stats=1"
+        echo "MSAN_OPTIONS: $MSAN_OPTIONS"
         
         # Check if executable exists
-        if (Test-Path ".\nglib\tests\ng_stl.exe") {
-          Write-Host "Found ng_stl.exe, executing..."
-          .\nglib\tests\ng_stl.exe
-          if ($LASTEXITCODE -eq 0) {
-            Write-Host "ng_stl test completed successfully"
-          } else {
-            Write-Host "ng_stl test failed with exit code: $LASTEXITCODE"
-            exit $LASTEXITCODE
-          }
-        } else {
-          Write-Host "ERROR: ng_stl.exe not found!"
-          Get-ChildItem -Recurse -Name "ng_stl.exe"
+        if [ -f "./nglib/tests/ng_stl" ]; then
+          echo "Found ng_stl executable, executing..."
+          ./nglib/tests/ng_stl
+          if [ $? -eq 0 ]; then
+            echo "ng_stl test completed successfully"
+          else
+            echo "ng_stl test failed with exit code: $?"
+            exit $?
+          fi
+        else
+          echo "ERROR: ng_stl executable not found!"
+          find . -name "ng_stl" -type f
           exit 1
-        }
+        fi
